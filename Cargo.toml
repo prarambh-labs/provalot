@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Deterministic evidence gate for coding agents"
 license = "MIT"
-repository = "https://github.com/provalot/provalot"
+repository = "https://github.com/vaishach0523-P1/provalot"
 
 [[bin]]
 name = "provalot"
