@@ -41,8 +41,48 @@ pub fn run(harness: Harness, stdin_json: &str) -> Result<HookOutcome, String> {
         Event::Stop {
             common, last_message, ..
         } => on_stop(&root, &common, &last_message)?,
+        Event::PreCompact { common, .. } => {
+            on_pre_compact(&root, &common)?;
+            NONE
+        }
         _ => NONE,
     })
+}
+
+fn line_agent(l: &Line) -> Option<&String> {
+    match l {
+        Line::Run { agent_id, .. }
+        | Line::EditPending { agent_id, .. }
+        | Line::Edit { agent_id, .. }
+        | Line::Claim { agent_id, .. }
+        | Line::Decision { agent_id, .. } => agent_id.as_ref(),
+        Line::Snapshot { .. } | Line::Override { .. } => None,
+    }
+}
+
+/// The main agent sees every line; a subagent sees its own lines plus unscoped ones.
+pub fn scoped(lines: Vec<Line>, agent_id: &Option<String>) -> Vec<Line> {
+    match agent_id {
+        None => lines,
+        Some(id) => lines
+            .into_iter()
+            .filter(|l| line_agent(l).map(|a| a == id).unwrap_or(true))
+            .collect(),
+    }
+}
+
+fn on_pre_compact(root: &Path, common: &Common) -> Result<(), String> {
+    let lines = ledger::read(root, &common.session_id);
+    let count = |f: &dyn Fn(&Line) -> bool| lines.iter().filter(|l| f(l)).count() as u32;
+    let snapshot = Line::Snapshot {
+        ts: ledger::now_ms(),
+        runs: count(&|l| matches!(l, Line::Run { .. })),
+        passes: count(&|l| matches!(l, Line::Run { outcome, .. } if outcome == "pass")),
+        fails: count(&|l| matches!(l, Line::Run { outcome, .. } if outcome == "fail")),
+        edits_changed: count(&|l| matches!(l, Line::Edit { changed: true, .. })),
+        claims: count(&|l| matches!(l, Line::Claim { .. })),
+    };
+    ledger::append(root, &common.session_id, &snapshot)
 }
 
 /// Files an edit tool touches: `file_path`, or the paths named in an apply_patch body.
@@ -112,7 +152,7 @@ fn on_pre_tool(
 }
 
 fn on_stop(root: &Path, common: &Common, last_message: &str) -> Result<HookOutcome, String> {
-    let lines = ledger::read(root, &common.session_id);
+    let lines = scoped(ledger::read(root, &common.session_id), &common.agent_id);
     let found = claims::extract(last_message, root);
     for c in &found {
         ledger::append(
