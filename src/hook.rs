@@ -175,7 +175,9 @@ fn on_stop(root: &Path, common: &Common, last_message: &str) -> Result<HookOutco
     if !rules::disabled(rules::r2_edit::ID) {
         blocks.extend(rules::r2_edit::evaluate(&lines, &found));
     }
-    record_and_answer(root, common, &lines, blocks, output::stop_block, true)
+    let out = record_and_answer(root, common, &lines, blocks, output::stop_block, true)?;
+    let _ = crate::report::write(root, &common.session_id);
+    Ok(out)
 }
 
 fn decision_line(common: &Common, decision: &str, rule: &str, reason: &str, consecutive: u32) -> Line {

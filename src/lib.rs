@@ -10,4 +10,6 @@ pub mod init;
 pub mod ledger;
 pub mod output;
 pub mod repo;
+pub mod report;
 pub mod rules;
+pub mod stats;

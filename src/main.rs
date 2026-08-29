@@ -39,6 +39,12 @@ enum Cmd {
         #[arg(long)]
         user: bool,
     },
+    /// Show the rules compiled from CLAUDE.md / AGENTS.md and the lines that were not enforceable
+    Status,
+    /// Render a session report (default: the latest session)
+    Report { session: Option<String> },
+    /// Counts across all sessions in this repo
+    Stats,
 }
 
 fn main() {
@@ -89,6 +95,15 @@ fn main() {
         Cmd::Uninstall { claude, codex, user } => {
             report_lines(provalot::init::uninstall(&root_from_cwd(), claude, codex, user))
         }
+        Cmd::Status => print!("{}", provalot::rules::policy::render_status(&root_from_cwd())),
+        Cmd::Report { session } => {
+            let root = root_from_cwd();
+            match session.or_else(|| provalot::ledger::latest_session(&root)) {
+                Some(s) => print!("{}", provalot::report::render(&root, &s)),
+                None => eprintln!("provalot: no sessions recorded yet"),
+            }
+        }
+        Cmd::Stats => print!("{}", provalot::stats::render(&root_from_cwd())),
     }
 }
 

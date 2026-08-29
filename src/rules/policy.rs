@@ -164,6 +164,39 @@ pub fn check_edit(policy: &Policy, rel_path: &str) -> Option<Block> {
     None
 }
 
+pub fn render_status(root: &Path) -> String {
+    let p = load(root);
+    let mut out = String::from("Enforced rules:\n");
+    if p.rules.is_empty() {
+        out.push_str("  (none compiled from CLAUDE.md / AGENTS.md)\n");
+    }
+    for r in &p.rules {
+        let line = match r {
+            PolicyRule::DenyCommand { tokens, source } => {
+                format!("  deny-command   `{}`   <- {source}", tokens.join(" "))
+            }
+            PolicyRule::ProtectPath { prefix, source } => format!("  protect-path   {prefix}/   <- {source}"),
+            PolicyRule::RequireBefore { gate, runner, source } => format!(
+                "  require-before {:?} needs {}   <- {source}",
+                gate,
+                runner
+                    .map(|r| r.as_str().to_string())
+                    .unwrap_or_else(|| "a passing test run".into())
+            ),
+        };
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out.push_str("Advisory (not enforced):\n");
+    if p.advisory.is_empty() {
+        out.push_str("  (none)\n");
+    }
+    for a in &p.advisory {
+        out.push_str(&format!("  {a}\n"));
+    }
+    out
+}
+
 pub fn load(root: &Path) -> Policy {
     let mut text = String::new();
     for name in ["CLAUDE.md", "AGENTS.md", ".claude/CLAUDE.md"] {
