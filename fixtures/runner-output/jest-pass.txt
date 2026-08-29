@@ -1,0 +1,4 @@
+PASS src/app.test.js
+Test Suites: 1 passed, 1 total
+Tests:       5 passed, 5 total
+Time:        0.8 s

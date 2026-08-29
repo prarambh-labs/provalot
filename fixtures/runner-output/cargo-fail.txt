@@ -1,0 +1,9 @@
+running 3 tests
+test a ... ok
+test b ... FAILED
+test c ... ok
+
+failures:
+    b
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

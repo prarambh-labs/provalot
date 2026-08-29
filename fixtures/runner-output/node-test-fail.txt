@@ -1,0 +1,6 @@
+TAP version 13
+# Subtest: adds
+not ok 1 - adds
+# tests 2
+# pass 1
+# fail 1
