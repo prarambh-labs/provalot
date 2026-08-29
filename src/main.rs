@@ -27,15 +27,19 @@ fn main() {
                 "codex" => provalot::event::Harness::Codex,
                 _ => std::process::exit(0),
             };
+            std::panic::set_hook(Box::new(|_| {}));
             let mut input = String::new();
             let _ = std::io::stdin().read_to_string(&mut input);
-            match provalot::hook::run(harness, &input) {
-                Ok(out) => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let root = provalot::repo::find_root(&cwd);
+            match std::panic::catch_unwind(|| provalot::hook::run(harness, &input)) {
+                Ok(Ok(out)) => {
                     if let Some(s) = out.stdout {
                         println!("{s}");
                     }
                 }
-                Err(e) => eprintln!("provalot: {e}"),
+                Ok(Err(e)) => provalot::errors::log(&root, &e),
+                Err(_) => provalot::errors::log(&root, "panic in hook"),
             }
             std::process::exit(0);
         }
