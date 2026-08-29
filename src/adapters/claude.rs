@@ -99,7 +99,7 @@ pub fn parse(raw: &Value) -> Result<Event, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::Event;
+    use crate::event::{Event, Tool};
 
     #[test]
     fn parses_stop_with_last_message() {
@@ -119,6 +119,72 @@ mod tests {
                 assert_eq!(common.agent_id, None);
             }
             other => panic!("wrong event: {other:?}"),
+        }
+    }
+
+    fn load(name: &str) -> Event {
+        let path = format!("{}/fixtures/hooks/claude/{name}", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("__CWD__", "/tmp/proj");
+        parse(&serde_json::from_str(&text).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn parses_pre_and_post_bash() {
+        match load("pre-bash.json") {
+            Event::PreToolUse {
+                tool,
+                tool_use_id,
+                input,
+                ..
+            } => {
+                assert_eq!(tool, Tool::Bash);
+                assert_eq!(tool_use_id.as_deref(), Some("toolu_b1"));
+                assert_eq!(input.command.as_deref(), Some("pytest -q"));
+            }
+            e => panic!("{e:?}"),
+        }
+        match load("post-bash-pytest-fail.json") {
+            Event::PostToolUse { response, .. } => {
+                assert!(response.stdout.contains("1 failed"));
+                assert!(response.is_error);
+                assert!(!response.interrupted);
+            }
+            e => panic!("{e:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_edit_and_write_paths() {
+        match load("pre-edit.json") {
+            Event::PreToolUse { tool, input, .. } => {
+                assert_eq!(tool, Tool::Edit);
+                assert_eq!(input.file_path.unwrap().to_str().unwrap(), "/tmp/proj/src/app.py");
+            }
+            e => panic!("{e:?}"),
+        }
+        match load("post-write.json") {
+            Event::PostToolUse { tool, input, .. } => {
+                assert_eq!(tool, Tool::Write);
+                assert!(input.file_path.unwrap().ends_with("migrations/0002_add.sql"));
+            }
+            e => panic!("{e:?}"),
+        }
+    }
+
+    #[test]
+    fn subagent_stop_carries_agent_id_and_pre_compact_trigger() {
+        match load("subagent-stop-lying.json") {
+            Event::Stop { common, .. } => {
+                assert_eq!(common.event_name, "SubagentStop");
+                assert_eq!(common.agent_id.as_deref(), Some("agent-7"));
+            }
+            e => panic!("{e:?}"),
+        }
+        match load("pre-compact.json") {
+            Event::PreCompact { trigger, .. } => assert_eq!(trigger, "auto"),
+            e => panic!("{e:?}"),
         }
     }
 }
