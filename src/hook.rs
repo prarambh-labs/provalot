@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::adapters;
 use crate::claims;
+use crate::decide::{self, Verdict};
 use crate::event::{Common, Event, Harness, Tool, ToolInput, ToolResponse};
 use crate::evidence::{outcome, runner};
 use crate::ledger::{self, Line};
@@ -111,52 +112,62 @@ fn on_stop(root: &Path, common: &Common, last_message: &str) -> Result<HookOutco
     if !rules::disabled(rules::r2_edit::ID) {
         blocks.extend(rules::r2_edit::evaluate(&lines, &found));
     }
-    record_and_answer(root, common, &lines, blocks)
+    record_and_answer(root, common, &lines, blocks, output::stop_block, true)
+}
+
+fn decision_line(common: &Common, decision: &str, rule: &str, reason: &str, consecutive: u32) -> Line {
+    Line::Decision {
+        ts: ledger::now_ms(),
+        agent_id: common.agent_id.clone(),
+        event: common.event_name.clone(),
+        decision: decision.into(),
+        rule: rule.into(),
+        reason: reason.into(),
+        consecutive,
+    }
 }
 
 fn record_and_answer(
     root: &Path,
     common: &Common,
-    _lines: &[Line],
+    lines: &[Line],
     blocks: Vec<rules::Block>,
+    render: fn(&str) -> String,
+    cap: bool,
 ) -> Result<HookOutcome, String> {
-    let ts = ledger::now_ms();
-    match blocks.into_iter().next() {
-        Some(b) => {
-            ledger::append(
-                root,
-                &common.session_id,
-                &Line::Decision {
-                    ts,
-                    agent_id: common.agent_id.clone(),
-                    event: common.event_name.clone(),
-                    decision: "block".into(),
-                    rule: b.rule.into(),
-                    reason: b.reason.clone(),
-                    consecutive: 1,
-                },
-            )?;
-            Ok(HookOutcome {
-                stdout: Some(output::stop_block(&b.reason)),
-            })
+    let line;
+    let out = match decide::verdict(lines, blocks, cap) {
+        Verdict::Allow => {
+            line = decision_line(common, "allow", "", "", 0);
+            NONE
         }
-        None => {
-            ledger::append(
-                root,
-                &common.session_id,
-                &Line::Decision {
-                    ts,
-                    agent_id: common.agent_id.clone(),
-                    event: common.event_name.clone(),
-                    decision: "allow".into(),
-                    rule: String::new(),
-                    reason: String::new(),
-                    consecutive: 0,
-                },
-            )?;
-            Ok(NONE)
+        Verdict::Block {
+            rule,
+            reason,
+            consecutive,
+        } => {
+            line = decision_line(common, "block", rule, &reason, consecutive);
+            HookOutcome {
+                stdout: Some(render(&reason)),
+            }
         }
-    }
+        Verdict::Capped { rule } => {
+            line = decision_line(
+                common,
+                "capped",
+                rule,
+                "consecutive block cap reached; allowing",
+                0,
+            );
+            NONE
+        }
+        Verdict::Overridden => {
+            line = decision_line(common, "override", "", "human override consumed", 0);
+            NONE
+        }
+    };
+    ledger::append(root, &common.session_id, &line)?;
+    Ok(out)
 }
 
 fn pending_hash(lines: &[Line], tool_use_id: &Option<String>, path: &str) -> Option<String> {

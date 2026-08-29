@@ -15,6 +15,11 @@ struct Cli {
 enum Cmd {
     /// Hook entry point: reads the harness event JSON on stdin (harness: claude | codex)
     Hook { harness: String },
+    /// Permit the next blocked decision in the latest session (logged in the report)
+    Allow {
+        #[arg(long)]
+        once: bool,
+    },
 }
 
 fn main() {
@@ -42,6 +47,23 @@ fn main() {
                 Err(_) => provalot::errors::log(&root, "panic in hook"),
             }
             std::process::exit(0);
+        }
+        Cmd::Allow { once } => {
+            if !once {
+                eprintln!("provalot allow needs --once (v0 has no standing allow)");
+                std::process::exit(2);
+            }
+            let cwd = std::env::current_dir().expect("cwd");
+            let root = provalot::repo::find_root(&cwd);
+            match provalot::decide::record_override(&root) {
+                Ok(session) => {
+                    println!("override recorded for session {session}: the next block is allowed once")
+                }
+                Err(e) => {
+                    eprintln!("provalot: {e}");
+                    std::process::exit(1);
+                }
+            }
         }
     }
 }
