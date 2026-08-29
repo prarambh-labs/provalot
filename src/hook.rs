@@ -108,6 +108,9 @@ fn on_stop(root: &Path, common: &Common, last_message: &str) -> Result<HookOutco
     if !rules::disabled(rules::r1_tests::ID) {
         blocks.extend(rules::r1_tests::evaluate(&lines, &found));
     }
+    if !rules::disabled(rules::r2_edit::ID) {
+        blocks.extend(rules::r2_edit::evaluate(&lines, &found));
+    }
     record_and_answer(root, common, &lines, blocks)
 }
 

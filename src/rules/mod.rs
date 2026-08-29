@@ -1,4 +1,5 @@
 pub mod r1_tests;
+pub mod r2_edit;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
