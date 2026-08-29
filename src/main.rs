@@ -20,6 +20,25 @@ enum Cmd {
         #[arg(long)]
         once: bool,
     },
+    /// Install the hooks (default: both harnesses, project scope)
+    Init {
+        #[arg(long)]
+        claude: bool,
+        #[arg(long)]
+        codex: bool,
+        /// Write to ~/.claude/settings.json and ~/.codex/hooks.json instead of the repo
+        #[arg(long)]
+        user: bool,
+    },
+    /// Remove the hooks provalot installed
+    Uninstall {
+        #[arg(long)]
+        claude: bool,
+        #[arg(long)]
+        codex: bool,
+        #[arg(long)]
+        user: bool,
+    },
 }
 
 fn main() {
@@ -53,8 +72,7 @@ fn main() {
                 eprintln!("provalot allow needs --once (v0 has no standing allow)");
                 std::process::exit(2);
             }
-            let cwd = std::env::current_dir().expect("cwd");
-            let root = provalot::repo::find_root(&cwd);
+            let root = root_from_cwd();
             match provalot::decide::record_override(&root) {
                 Ok(session) => {
                     println!("override recorded for session {session}: the next block is allowed once")
@@ -64,6 +82,31 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+        }
+        Cmd::Init { claude, codex, user } => {
+            report_lines(provalot::init::init(&root_from_cwd(), claude, codex, user))
+        }
+        Cmd::Uninstall { claude, codex, user } => {
+            report_lines(provalot::init::uninstall(&root_from_cwd(), claude, codex, user))
+        }
+    }
+}
+
+fn root_from_cwd() -> std::path::PathBuf {
+    let cwd = std::env::current_dir().expect("cwd");
+    provalot::repo::find_root(&cwd)
+}
+
+fn report_lines(result: Result<Vec<String>, String>) {
+    match result {
+        Ok(lines) => {
+            for l in lines {
+                println!("{l}");
+            }
+        }
+        Err(e) => {
+            eprintln!("provalot: {e}");
+            std::process::exit(1);
         }
     }
 }

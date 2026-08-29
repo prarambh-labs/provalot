@@ -6,6 +6,7 @@ pub mod errors;
 pub mod event;
 pub mod evidence;
 pub mod hook;
+pub mod init;
 pub mod ledger;
 pub mod output;
 pub mod repo;
