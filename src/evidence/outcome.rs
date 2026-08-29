@@ -41,6 +41,12 @@ re!(
 );
 re!(NODE_FAIL, r"(?m)^# fail (\d+)");
 re!(NODE_PASS, r"(?m)^# pass (\d+)");
+// Node >= 20 prints the spec reporter even when stdout is not a TTY.
+re!(NODE_SPEC_FAIL, r"(?m)^\s*\x{2139} fail (\d+)");
+re!(NODE_SPEC_PASS, r"(?m)^\s*\x{2139} pass (\d+)");
+// `rtk` collapses a cargo test run to a single summary line.
+re!(RTK_CARGO_FAIL, r"(?m)^cargo test: [^\n]*?\b(\d+) failed\b");
+re!(RTK_CARGO_PASS, r"(?m)^cargo test: (\d+) passed\b");
 re!(GO_FAIL, r"(?m)^(?:FAIL|--- FAIL)");
 re!(GO_PASS, r"(?m)^ok\s");
 re!(XC_FAIL, r"\*\* TEST FAILED \*\*");
@@ -62,12 +68,20 @@ pub fn infer(runner: Runner, stdout: &str, stderr: &str, is_error: bool, interru
         return Outcome::Fail;
     }
     let text = format!("{stdout}\n{stderr}");
-    let js = || (nonzero(&JS_FAIL, &text), JS_PASS.is_match(&text));
-    let node = || (nonzero(&NODE_FAIL, &text), NODE_PASS.is_match(&text));
-    let py = || (nonzero(&PYTEST_FAIL, &text), PYTEST_PASS.is_match(&text));
+    let js = || (nonzero(&JS_FAIL, &text), nonzero(&JS_PASS, &text));
+    let node = || {
+        (
+            nonzero(&NODE_FAIL, &text) || nonzero(&NODE_SPEC_FAIL, &text),
+            nonzero(&NODE_PASS, &text) || nonzero(&NODE_SPEC_PASS, &text),
+        )
+    };
+    let py = || (nonzero(&PYTEST_FAIL, &text), nonzero(&PYTEST_PASS, &text));
     let (fail, pass) = match runner {
         Runner::Pytest => py(),
-        Runner::Cargo => (CARGO_FAIL.is_match(&text), CARGO_PASS.is_match(&text)),
+        Runner::Cargo => (
+            CARGO_FAIL.is_match(&text) || nonzero(&RTK_CARGO_FAIL, &text),
+            CARGO_PASS.is_match(&text) || nonzero(&RTK_CARGO_PASS, &text),
+        ),
         Runner::Vitest | Runner::Jest => js(),
         Runner::NpmTest => {
             let (a, b) = js();
@@ -111,6 +125,10 @@ mod tests {
             (Runner::Pytest, "pytest-fail", Outcome::Fail),
             (Runner::Cargo, "cargo-pass", Outcome::Pass),
             (Runner::Cargo, "cargo-fail", Outcome::Fail),
+            (Runner::Cargo, "cargo-rtk-pass", Outcome::Pass),
+            (Runner::NodeTest, "node-test-spec-pass", Outcome::Pass),
+            (Runner::NodeTest, "node-test-spec-fail", Outcome::Fail),
+            (Runner::NpmTest, "node-test-spec-pass", Outcome::Pass),
             (Runner::Jest, "jest-pass", Outcome::Pass),
             (Runner::Jest, "jest-fail", Outcome::Fail),
             (Runner::Vitest, "vitest-pass", Outcome::Pass),
@@ -149,6 +167,48 @@ mod tests {
             infer(Runner::Pytest, "", "4 passed in 0.1s", false, false),
             Outcome::Pass,
             "stderr is scanned too"
+        );
+    }
+
+    #[test]
+    fn zero_passed_is_not_a_pass() {
+        assert_eq!(
+            infer(Runner::Pytest, "0 passed, 3 skipped in 0.1s", "", false, false),
+            Outcome::Unknown
+        );
+        assert_eq!(
+            infer(
+                Runner::NodeTest,
+                "# tests 0\n# pass 0\n# fail 0\n",
+                "",
+                false,
+                false
+            ),
+            Outcome::Unknown
+        );
+        assert_eq!(
+            infer(
+                Runner::Cargo,
+                "cargo test: 0 passed (0 suites, 0.01s)",
+                "",
+                false,
+                false
+            ),
+            Outcome::Unknown
+        );
+    }
+
+    #[test]
+    fn rtk_cargo_failure_line_is_a_fail() {
+        assert_eq!(
+            infer(
+                Runner::Cargo,
+                "cargo test: 70 passed, 1 failed (19 suites, 2.03s)",
+                "",
+                false,
+                false
+            ),
+            Outcome::Fail
         );
     }
 }

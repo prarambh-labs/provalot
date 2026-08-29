@@ -1,0 +1,10 @@
+✔ maps platforms to release targets (0.836084ms)
+✖ asset names and urls pin the package version (0.149709ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 91.175917
