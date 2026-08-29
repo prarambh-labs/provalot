@@ -112,11 +112,17 @@ pub fn tokens(command: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Tokens of every segment with wrappers stripped.
-pub fn segment_tokens(command: &str) -> Vec<Vec<String>> {
+/// Tokens of every segment, both wrapper-stripped and verbatim.
+///
+/// A policy may name a wrapper it denies (`NEVER run sudo rm -rf`), so those rules have to be
+/// matched against the unstripped tokens too, or they could never fire.
+pub fn segment_tokens(command: &str) -> Vec<(Vec<String>, Vec<String>)> {
     segments(command)
         .iter()
-        .map(|s| strip_wrappers(&split_tokens(s)))
+        .map(|s| {
+            let raw = split_tokens(s);
+            (strip_wrappers(&raw), raw)
+        })
         .collect()
 }
 

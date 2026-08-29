@@ -125,10 +125,12 @@ fn gate_tokens(gate: &Gate) -> Vec<String> {
 }
 
 pub fn check_command(policy: &Policy, command: &str, lines: &[Line]) -> Option<Block> {
-    for seg in runner::segment_tokens(command) {
+    for (seg, raw) in runner::segment_tokens(command) {
         for rule in &policy.rules {
             match rule {
-                PolicyRule::DenyCommand { tokens, source } if contains_subsequence(&seg, tokens) => {
+                PolicyRule::DenyCommand { tokens, source }
+                    if contains_subsequence(&seg, tokens) || contains_subsequence(&raw, tokens) =>
+                {
                     return Some(Block {
                         rule: "R3.deny-command",
                         reason: format!(
@@ -307,6 +309,32 @@ mod tests {
         ));
         assert!(matches!(&p.rules[2], PolicyRule::ProtectPath { prefix, .. } if prefix == "migrations"));
         assert_eq!(p.advisory, vec!["- **MUST** commit after every task."]);
+    }
+
+    /// `strip_wrappers` removes `sudo`/`env`/`timeout`, so a policy naming one as its first
+    /// token would never match the stripped haystack.
+    #[test]
+    fn a_policy_may_name_a_wrapper_it_denies() {
+        let p = compile("NEVER run `sudo rm -rf`");
+        assert_eq!(
+            check_command(&p, "sudo rm -rf /", &[]).unwrap().rule,
+            "R3.deny-command"
+        );
+        assert!(
+            check_command(&p, "rm -rf /", &[]).is_none(),
+            "sudo is required by this rule"
+        );
+
+        // The wrapper-stripping improvement still holds for rules that do not name it.
+        let p = compile("NEVER run `rm -rf`");
+        assert_eq!(
+            check_command(&p, "sudo rm -rf /", &[]).unwrap().rule,
+            "R3.deny-command"
+        );
+        assert_eq!(
+            check_command(&p, "timeout 60 rm -rf /", &[]).unwrap().rule,
+            "R3.deny-command"
+        );
     }
 
     #[test]

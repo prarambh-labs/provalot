@@ -51,7 +51,7 @@ re!(
 );
 re!(
     FILE_EDITED,
-    r"(?i)\b(?:updated|edited|modified|changed|wrote|rewrote|patched|touched|refactored)\s+(?:the\s+)?(?:file\s+)?([A-Za-z0-9_./\\*-]+\.[A-Za-z0-9]+\**_*)"
+    r"(?i)\b(?:updated|edited|modified|changed|wrote|rewrote|patched|touched|refactored)\s+(?:the\s+)?(?:file\s+)?\**\s*([A-Za-z0-9_./\\*-]+\.[A-Za-z0-9]+\**_*)"
 );
 
 const NEGATORS: &[&str] = &[
@@ -161,7 +161,11 @@ fn words_before(text: &str, end: usize, n: usize) -> Vec<String> {
 }
 
 fn words_after(text: &str, start: usize, n: usize) -> Vec<String> {
-    text[start..]
+    let rest = &text[start..];
+    // A retraction only counts inside the same sentence: "All tests pass. No failures."
+    // reports success, and reading past the stop would silence it.
+    let stop = rest.find(['.', ';', '!', '?', '\n']).unwrap_or(rest.len());
+    rest[..stop]
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
         .map(|w| w.to_lowercase())
@@ -303,6 +307,20 @@ mod tests {
         }
     }
 
+    /// The retract window must not read into the next sentence, or ordinary truthful
+    /// summaries go silent.
+    #[test]
+    fn a_retraction_in_the_next_sentence_does_not_veto() {
+        for m in [
+            "All tests pass. No failures.",
+            "All tests pass; the error handling is now covered.",
+            "All tests pass.\n\nFixed the error in the parser.",
+            "All tests pass! No errors left.",
+        ] {
+            assert_eq!(tests_pass_count(m), 1, "{m}");
+        }
+    }
+
     #[test]
     fn negated_hedged_and_quoted_claims_are_not_claims() {
         for m in [
@@ -342,6 +360,8 @@ mod tests {
             "Updated `src/app.py`",
             "Updated **src/app.py**",
             "Updated _src/app.py_",
+            "Updated **`src/app.py`**",
+            "Updated __src/app.py__",
         ] {
             let paths: Vec<String> = extract(m, dir.path())
                 .into_iter()
@@ -350,6 +370,15 @@ mod tests {
             assert_eq!(paths, vec!["src/app.py".to_string()], "{m}");
         }
         assert_eq!(tests_pass_count("Run `pytest` until all tests pass."), 0);
+
+        // A leading underscore that is part of the filename must survive: this is why the
+        // emphasis prefix is `\**` and `_` is only stripped when it wraps both ends.
+        let dir = root_with(&["pkg/__init__.py"]);
+        let paths: Vec<String> = extract("Updated pkg/__init__.py", dir.path())
+            .into_iter()
+            .filter_map(|c| c.path)
+            .collect();
+        assert_eq!(paths, vec!["pkg/__init__.py".to_string()]);
     }
 
     #[test]

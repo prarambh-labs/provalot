@@ -100,3 +100,39 @@ fn uninstall_removes_bare_and_absolute_hook_commands() {
     assert_eq!(stop.len(), 1, "only the foreign hook survives: {stop:?}");
     assert_eq!(stop[0]["hooks"][0]["command"], "rtk hook claude");
 }
+
+/// Installing from a second path (a fresh `npx` cache, then a global install) must leave one
+/// hook entry per event, carrying the newest path.
+#[test]
+fn installing_from_two_paths_leaves_one_entry_per_event() {
+    let dir = tempfile::tempdir().unwrap();
+    let bins = tempfile::tempdir().unwrap();
+    let mut paths = Vec::new();
+    for name in ["a", "b"] {
+        let d = bins.path().join(name);
+        std::fs::create_dir_all(&d).unwrap();
+        let p = d.join("provalot");
+        std::fs::copy(env!("CARGO_BIN_EXE_provalot"), &p).unwrap();
+        paths.push(p);
+    }
+    for p in &paths {
+        let out = std::process::Command::new(p)
+            .args(["init", "--claude"])
+            .current_dir(dir.path())
+            .output()
+            .expect("run init");
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    }
+    let s: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.path().join(".claude/settings.json")).unwrap())
+            .unwrap();
+    for ev in ["PreToolUse", "PostToolUse", "Stop", "SubagentStop", "PreCompact"] {
+        let list = s["hooks"][ev].as_array().unwrap();
+        assert_eq!(list.len(), 1, "{ev} has one entry: {list:?}");
+        assert_eq!(
+            list[0]["hooks"][0]["command"],
+            format!("{} hook claude", paths[1].display()),
+            "{ev} carries the newest install path"
+        );
+    }
+}

@@ -40,10 +40,13 @@ pub fn hook_entry(command: &str, matcher: Option<&str>) -> Value {
     entry
 }
 
-fn has_command(entry: &Value, command: &str) -> bool {
+fn entry_is_ours(entry: &Value) -> bool {
     entry["hooks"]
         .as_array()
-        .map(|hs| hs.iter().any(|h| h["command"].as_str() == Some(command)))
+        .map(|hs| {
+            hs.iter()
+                .any(|h| h["command"].as_str().map(is_ours).unwrap_or(false))
+        })
         .unwrap_or(false)
 }
 
@@ -70,8 +73,28 @@ pub fn add_hooks(settings: &mut Value, command: &str, matcher: &str) -> bool {
             *arr = json!([]);
         }
         let list = arr.as_array_mut().unwrap();
-        if !list.iter().any(|e| has_command(e, command)) {
-            list.push(hook_entry(command, m));
+        // Our command is install-path specific, so an entry from an older install must be
+        // replaced in place (keeping its position) rather than appended alongside — two
+        // entries would run the hook twice and leave a stale path registered.
+        let new = hook_entry(command, m);
+        let mut seen = false;
+        list.retain_mut(|e| {
+            if !entry_is_ours(e) {
+                return true;
+            }
+            if seen {
+                changed = true;
+                return false;
+            }
+            seen = true;
+            if *e != new {
+                *e = new.clone();
+                changed = true;
+            }
+            true
+        });
+        if !seen {
+            list.push(new);
             changed = true;
         }
     }
@@ -94,20 +117,14 @@ pub fn remove_hooks(settings: &mut Value) -> bool {
             continue;
         };
         let before = list.len();
-        list.retain(|e| {
-            !e["hooks"]
-                .as_array()
-                .map(|hs| {
-                    hs.iter()
-                        .any(|h| h["command"].as_str().map(is_ours).unwrap_or(false))
-                })
-                .unwrap_or(false)
-        });
+        list.retain(|e| !entry_is_ours(e));
         if list.len() != before {
             changed = true;
         }
         if list.is_empty() {
-            hooks.remove(&k);
+            // `shift_remove`, not `remove`: under `preserve_order` the latter is a swap-remove
+            // and would shuffle the user's remaining events.
+            hooks.shift_remove(&k);
         }
     }
     changed
@@ -280,6 +297,46 @@ mod tests {
         assert_eq!(s["hooks"]["PreToolUse"].as_array().unwrap().len(), 1);
         assert!(s["hooks"].get("Stop").is_none(), "empty arrays are dropped");
         assert!(!remove_hooks(&mut s));
+    }
+
+    /// The command is install-path specific, so a second install path must replace our
+    /// entry rather than append a second one that would run the hook twice.
+    #[test]
+    fn a_new_install_path_replaces_our_entry_instead_of_appending() {
+        let mut s = json!({"hooks": {"Stop": [
+            {"hooks": [{"type": "command", "command": "rtk hook claude"}]},
+            {"hooks": [{"type": "command", "command": "provalot hook claude"}]},
+            {"hooks": [{"type": "command", "command": "other hook claude"}]}
+        ]}});
+        assert!(add_hooks(&mut s, "/a/provalot hook claude", CLAUDE_MATCHER));
+        assert!(add_hooks(&mut s, "/b/provalot hook claude", CLAUDE_MATCHER));
+        assert!(
+            !add_hooks(&mut s, "/b/provalot hook claude", CLAUDE_MATCHER),
+            "idempotent"
+        );
+        let stop = s["hooks"]["Stop"].as_array().unwrap();
+        assert_eq!(stop.len(), 3, "no duplicate provalot entry: {stop:?}");
+        assert_eq!(stop[0]["hooks"][0]["command"], "rtk hook claude");
+        assert_eq!(
+            stop[1]["hooks"][0]["command"], "/b/provalot hook claude",
+            "replaced in place, order kept"
+        );
+        assert_eq!(stop[2]["hooks"][0]["command"], "other hook claude");
+    }
+
+    /// `preserve_order` makes `Map::remove` a swap-remove, which would shuffle the user's
+    /// remaining events on uninstall.
+    #[test]
+    fn uninstall_keeps_the_order_of_remaining_events() {
+        let mut s = json!({"hooks": {
+            "Stop": [{"hooks": [{"type": "command", "command": "provalot hook claude"}]}],
+            "SessionStart": [{"hooks": [{"type": "command", "command": "a"}]}],
+            "Notification": [{"hooks": [{"type": "command", "command": "b"}]}],
+            "SessionEnd": [{"hooks": [{"type": "command", "command": "c"}]}]
+        }});
+        assert!(remove_hooks(&mut s));
+        let events: Vec<&String> = s["hooks"].as_object().unwrap().keys().collect();
+        assert_eq!(events, vec!["SessionStart", "Notification", "SessionEnd"]);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 #[test]
-fn plugin_hooks_match_what_init_writes() {
+fn plugin_hooks_match_the_bare_init_template() {
     let manifest: serde_json::Value =
         serde_json::from_str(include_str!("../hooks/hooks.json")).expect("hooks/hooks.json parses");
     let mut expected = serde_json::json!({});
