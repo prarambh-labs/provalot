@@ -11,6 +11,27 @@ const PLAIN_EVENTS: [&str; 3] = ["Stop", "SubagentStop", "PreCompact"];
 pub const CODEX_TRUST_NOTE: &str =
     "Codex: project hooks load only after you trust them. In Codex run /hooks, review 'provalot hook codex', and trust it.";
 
+/// The bare command with `provalot` replaced by this binary's absolute path.
+///
+/// After `npx provalot init` exits, nothing named `provalot` is on PATH, so a bare
+/// command would make every hook invocation fail with "command not found". Falls back
+/// to the bare form when the executable path cannot be resolved. `hooks/hooks.json`
+/// stays bare: a plugin cannot know where the binary lives.
+pub fn resolved_command(bare: &str) -> String {
+    let Ok(exe) = std::env::current_exe() else {
+        return bare.to_string();
+    };
+    let Some(args) = bare.strip_prefix("provalot") else {
+        return bare.to_string();
+    };
+    let exe = exe.to_string_lossy();
+    if exe.contains(char::is_whitespace) {
+        format!("\"{exe}\"{args}")
+    } else {
+        format!("{exe}{args}")
+    }
+}
+
 pub fn hook_entry(command: &str, matcher: Option<&str>) -> Value {
     let mut entry = json!({"hooks": [{"type": "command", "command": command, "timeout": 10}]});
     if let Some(m) = matcher {
@@ -57,7 +78,12 @@ pub fn add_hooks(settings: &mut Value, command: &str, matcher: &str) -> bool {
     changed
 }
 
-pub fn remove_hooks(settings: &mut Value, command_prefix: &str) -> bool {
+/// True for a hook command we installed, in either the bare or the absolute-path form.
+fn is_ours(command: &str) -> bool {
+    command.contains("provalot") && command.contains(" hook ")
+}
+
+pub fn remove_hooks(settings: &mut Value) -> bool {
     let Some(hooks) = settings.get_mut("hooks").and_then(|h| h.as_object_mut()) else {
         return false;
     };
@@ -72,12 +98,8 @@ pub fn remove_hooks(settings: &mut Value, command_prefix: &str) -> bool {
             !e["hooks"]
                 .as_array()
                 .map(|hs| {
-                    hs.iter().any(|h| {
-                        h["command"]
-                            .as_str()
-                            .map(|c| c.starts_with(command_prefix))
-                            .unwrap_or(false)
-                    })
+                    hs.iter()
+                        .any(|h| h["command"].as_str().map(is_ours).unwrap_or(false))
                 })
                 .unwrap_or(false)
         });
@@ -174,7 +196,7 @@ pub fn init(root: &Path, claude: bool, codex: bool, user: bool) -> Result<Vec<St
     if claude {
         apply(
             &claude_settings_path(root, user),
-            |v| add_hooks(v, CLAUDE_COMMAND, CLAUDE_MATCHER),
+            |v| add_hooks(v, &resolved_command(CLAUDE_COMMAND), CLAUDE_MATCHER),
             "wrote",
             &mut msgs,
         )?;
@@ -182,7 +204,7 @@ pub fn init(root: &Path, claude: bool, codex: bool, user: bool) -> Result<Vec<St
     if codex {
         apply(
             &codex_hooks_path(root, user),
-            |v| add_hooks(v, CODEX_COMMAND, CODEX_MATCHER),
+            |v| add_hooks(v, &resolved_command(CODEX_COMMAND), CODEX_MATCHER),
             "wrote",
             &mut msgs,
         )?;
@@ -207,18 +229,13 @@ pub fn uninstall(root: &Path, claude: bool, codex: bool, user: bool) -> Result<V
     if claude {
         apply(
             &claude_settings_path(root, user),
-            |v| remove_hooks(v, "provalot hook"),
+            remove_hooks,
             "cleaned",
             &mut msgs,
         )?;
     }
     if codex {
-        apply(
-            &codex_hooks_path(root, user),
-            |v| remove_hooks(v, "provalot hook"),
-            "cleaned",
-            &mut msgs,
-        )?;
+        apply(&codex_hooks_path(root, user), remove_hooks, "cleaned", &mut msgs)?;
     }
     Ok(msgs)
 }
@@ -253,9 +270,13 @@ mod tests {
             0,
             json!({"matcher": "Bash", "hooks": [{"type": "command", "command": "rtk hook claude"}]}),
         );
-        assert!(remove_hooks(&mut s, "provalot hook"));
+        s["hooks"]["PreToolUse"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"hooks": [{"type": "command", "command": "/opt/bin/provalot hook claude"}]}));
+        assert!(remove_hooks(&mut s));
         assert_eq!(s["hooks"]["PreToolUse"].as_array().unwrap().len(), 1);
         assert!(s["hooks"].get("Stop").is_none(), "empty arrays are dropped");
-        assert!(!remove_hooks(&mut s, "provalot hook"));
+        assert!(!remove_hooks(&mut s));
     }
 }

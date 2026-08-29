@@ -6,6 +6,8 @@ Deterministic evidence gate for coding agents. One binary, installed as a hook i
 npx provalot init        # or: cargo install provalot && provalot init
 ```
 
+`init` writes the absolute path of the binary into the hook command, so it keeps working after `npx` exits. Installing as a Claude Code plugin instead uses the bare `provalot` command, which needs `provalot` on your `PATH`.
+
 ## What it enforces (v0)
 
 | Rule | Fires when | Blocked with |
