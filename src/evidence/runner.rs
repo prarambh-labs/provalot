@@ -66,13 +66,24 @@ fn segments(command: &str) -> Vec<String> {
         .collect()
 }
 
-/// Drop leading wrappers (`rtk` and its flags, `time`, `nice`) and `VAR=value` assignments.
+/// Drop leading wrappers (`rtk`, `time`, `nice`, `timeout <n>`, `sudo`, `env` and their
+/// flags) and `VAR=value` assignments.
 fn strip_wrappers(tokens: &[String]) -> Vec<String> {
     let mut i = 0;
     while let Some(t) = tokens.get(i) {
-        if t == "rtk" || t == "time" || t == "nice" {
+        if matches!(t.as_str(), "rtk" | "time" | "nice" | "sudo" | "env" | "timeout") {
+            let is_timeout = t == "timeout";
             i += 1;
             while tokens.get(i).map(|x| x.starts_with('-')).unwrap_or(false) {
+                i += 1;
+            }
+            // `timeout [-k n] <duration> cmd`: durations are numeric, commands are not.
+            while is_timeout
+                && tokens
+                    .get(i)
+                    .map(|x| x.starts_with(|c: char| c.is_ascii_digit()))
+                    .unwrap_or(false)
+            {
                 i += 1;
             }
             continue;
@@ -189,6 +200,10 @@ mod tests {
             ("cargo build", Runner::Other),
             ("npm run build", Runner::Other),
             ("echo pytest", Runner::Other),
+            ("timeout 60 pytest", Runner::Pytest),
+            ("timeout -k 5 300 cargo test", Runner::Cargo),
+            ("sudo -E env CI=1 cargo test", Runner::Cargo),
+            ("env NODE_ENV=test npm test", Runner::NpmTest),
         ];
         for (cmd, want) in cases {
             assert_eq!(classify(cmd), want, "command: {cmd}");

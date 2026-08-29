@@ -71,11 +71,15 @@ pub fn compile(text: &str) -> Policy {
             });
         } else if let Some(c) = REQUIRE.captures(line) {
             let what = c[1].trim().to_lowercase();
-            let gate = if line.to_lowercase().contains("push") {
-                Gate::Push
-            } else {
-                Gate::Commit
-            };
+            // "before committing or pushing" gates both; naming one gates only that one.
+            let lower = line.to_lowercase();
+            let mut gates = Vec::new();
+            if lower.contains("commit") {
+                gates.push(Gate::Commit);
+            }
+            if lower.contains("push") {
+                gates.push(Gate::Push);
+            }
             let generic = matches!(
                 what.as_str(),
                 "test suite" | "tests" | "the tests" | "test" | "all tests"
@@ -91,7 +95,13 @@ pub fn compile(text: &str) -> Policy {
                     r => Some(r),
                 }
             };
-            p.rules.push(PolicyRule::RequireBefore { gate, runner, source });
+            for gate in gates {
+                p.rules.push(PolicyRule::RequireBefore {
+                    gate,
+                    runner,
+                    source: source.clone(),
+                });
+            }
         } else if DIRECTIVE.is_match(line) {
             p.advisory.push(source);
         }
@@ -310,6 +320,27 @@ mod tests {
                 ..
             }
         ));
+        let p = compile("ALWAYS run `cargo test` before committing or pushing");
+        assert_eq!(p.rules.len(), 2, "both gates are compiled: {:?}", p.rules);
+        let gates: Vec<&Gate> = p
+            .rules
+            .iter()
+            .filter_map(|r| match r {
+                PolicyRule::RequireBefore { gate, .. } => Some(gate),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(gates, vec![&Gate::Commit, &Gate::Push]);
+
+        let p = compile("ALWAYS run `cargo test` before committing");
+        assert!(matches!(
+            &p.rules[..],
+            [PolicyRule::RequireBefore {
+                gate: Gate::Commit,
+                ..
+            }]
+        ));
+
         let p = compile("ALWAYS run `make lint` before committing");
         assert!(p.rules.is_empty());
         assert_eq!(p.advisory.len(), 1, "unrecognized runner becomes advisory");
