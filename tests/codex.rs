@@ -41,3 +41,25 @@ fn codex_lying_stop_blocks_and_truthful_stop_allows() {
     hook(dir.path(), "codex/post-bash-cargo-pass.json");
     assert_eq!(hook(dir.path(), "codex/stop-tests-only.json"), "");
 }
+
+/// Codex `apply_patch` paths are relative to the process cwd, not the repo root.
+#[test]
+fn apply_patch_paths_resolve_against_the_event_cwd() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    let sub = root.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(sub.join("app.py"), "print(1)\n").unwrap();
+    hook(&sub, "codex/pre-apply-patch-subdir.json");
+    std::fs::write(sub.join("app.py"), "print(2)\n").unwrap();
+    hook(&sub, "codex/post-apply-patch-subdir.json");
+    let lines = common::ledger_lines(root, "sess-cx-sub");
+    let edit = lines
+        .iter()
+        .find(|l| l["kind"] == "edit")
+        .unwrap_or_else(|| panic!("no edit line in {lines:?}"));
+    assert_eq!(edit["path"], "sub/app.py");
+    assert!(!edit["hash_before"].is_null(), "the file was found");
+    assert_eq!(edit["changed"], true);
+}

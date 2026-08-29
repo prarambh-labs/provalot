@@ -1,0 +1,1 @@
+{"session_id":"sess-cx-sub","turn_id":"turn-1","cwd":"__CWD__","permission_mode":"default","hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_use_id":"call_9","tool_input":{"input":"*** Begin Patch\n*** Update File: app.py\n@@\n-print(1)\n+print(2)\n*** End Patch\n"}}

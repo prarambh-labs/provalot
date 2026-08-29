@@ -21,8 +21,23 @@ pub fn rel(root: &Path, path: &Path) -> String {
     } else {
         root.join(path)
     };
-    let p = abs.strip_prefix(root).map(|x| x.to_path_buf()).unwrap_or(abs);
+    let p = match abs.strip_prefix(root) {
+        Ok(x) => x.to_path_buf(),
+        // The root and the path can name the same directory through different symlinks
+        // (macOS `/tmp` -> `/private/tmp`, a symlinked home). Retry canonicalized.
+        Err(_) => canonical_rel(root, &abs).unwrap_or(abs),
+    };
     p.to_string_lossy().replace('\\', "/")
+}
+
+fn canonical_rel(root: &Path, abs: &Path) -> Option<PathBuf> {
+    let root = root.canonicalize().ok()?;
+    // The file may not exist yet (an added file), so fall back to canonicalizing its parent.
+    let path = abs
+        .canonicalize()
+        .ok()
+        .or_else(|| Some(abs.parent()?.canonicalize().ok()?.join(abs.file_name()?)))?;
+    path.strip_prefix(&root).ok().map(|x| x.to_path_buf())
 }
 
 pub fn sha256_file(path: &Path) -> Option<String> {
@@ -60,5 +75,27 @@ mod tests {
         assert_eq!(rel(dir.path(), std::path::Path::new("src/app.py")), "src/app.py");
         assert_eq!(sha256_file(&f), Some(sha256_str("print(1)\n")));
         assert_eq!(sha256_file(&dir.path().join("nope")), None);
+    }
+
+    /// macOS `/tmp` and `/var`, and symlinked homes, make the root and the tool's
+    /// path disagree textually while naming the same file.
+    #[cfg(unix)]
+    #[test]
+    fn rel_resolves_a_symlinked_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(real.join("src")).unwrap();
+        std::fs::write(real.join("src/app.py"), "x").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        assert_eq!(rel(&link, &real.join("src/app.py")), "src/app.py");
+        assert_eq!(rel(&real, &link.join("src/app.py")), "src/app.py");
+        // A file that does not exist yet (apply_patch "Add File") still resolves.
+        assert_eq!(rel(&link, &real.join("src/new.py")), "src/new.py");
+        // A path genuinely outside the root stays absolute.
+        let outside = dir.path().join("elsewhere.py");
+        std::fs::write(&outside, "x").unwrap();
+        assert_eq!(rel(&real, &outside), outside.to_string_lossy());
     }
 }

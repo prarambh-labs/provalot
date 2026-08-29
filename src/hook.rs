@@ -86,9 +86,13 @@ fn on_pre_compact(root: &Path, common: &Common) -> Result<(), String> {
 }
 
 /// Files an edit tool touches: `file_path`, or the paths named in an apply_patch body.
-pub fn edit_paths(root: &Path, input: &ToolInput) -> Vec<PathBuf> {
+///
+/// Relative paths are joined against the event's `cwd`, not the repo root: Codex
+/// `apply_patch` entries are relative to the process cwd, which is a subdirectory
+/// whenever the agent runs below the repo root.
+pub fn edit_paths(cwd: &Path, input: &ToolInput) -> Vec<PathBuf> {
     if let Some(p) = &input.file_path {
-        return vec![if p.is_absolute() { p.clone() } else { root.join(p) }];
+        return vec![if p.is_absolute() { p.clone() } else { cwd.join(p) }];
     }
     let Some(patch) = &input.patch else {
         return Vec::new();
@@ -100,7 +104,7 @@ pub fn edit_paths(root: &Path, input: &ToolInput) -> Vec<PathBuf> {
                 .or_else(|| l.strip_prefix("*** Add File: "))
                 .or_else(|| l.strip_prefix("*** Delete File: "))
         })
-        .map(|p| root.join(p.trim()))
+        .map(|p| cwd.join(p.trim()))
         .collect()
 }
 
@@ -122,7 +126,7 @@ fn on_pre_tool(
                 &lines,
             ));
         } else if tool.is_edit() {
-            for p in edit_paths(root, input) {
+            for p in edit_paths(&common.cwd, input) {
                 blocks.extend(policy::check_edit(&pol, &repo::rel(root, &p)));
             }
         }
@@ -134,7 +138,7 @@ fn on_pre_tool(
         }
     }
     if tool.is_edit() {
-        for p in edit_paths(root, input) {
+        for p in edit_paths(&common.cwd, input) {
             ledger::append(
                 root,
                 &common.session_id,
@@ -284,7 +288,7 @@ fn on_post_tool(
     }
     if tool.is_edit() {
         let lines = ledger::read(root, &common.session_id);
-        for p in edit_paths(root, input) {
+        for p in edit_paths(&common.cwd, input) {
             let path = repo::rel(root, &p);
             let hash_before = pending_hash(&lines, &tool_use_id, &path);
             let hash_after = repo::sha256_file(&p);
