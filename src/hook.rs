@@ -9,6 +9,7 @@ use crate::ledger::{self, Line};
 use crate::output;
 use crate::repo;
 use crate::rules;
+use crate::rules::policy;
 
 pub struct HookOutcome {
     pub stdout: Option<String>,
@@ -70,6 +71,28 @@ fn on_pre_tool(
     tool_use_id: Option<String>,
     input: &ToolInput,
 ) -> Result<HookOutcome, String> {
+    let lines = ledger::read(root, &common.session_id);
+    let pol = policy::load(root);
+    let mut blocks = Vec::new();
+    if !rules::disabled("R3") {
+        if *tool == Tool::Bash {
+            blocks.extend(policy::check_command(
+                &pol,
+                &input.command.clone().unwrap_or_default(),
+                &lines,
+            ));
+        } else if tool.is_edit() {
+            for p in edit_paths(root, input) {
+                blocks.extend(policy::check_edit(&pol, &repo::rel(root, &p)));
+            }
+        }
+    }
+    if !blocks.is_empty() {
+        let out = record_and_answer(root, common, &lines, blocks, output::pre_tool_deny, false)?;
+        if out.stdout.is_some() {
+            return Ok(out);
+        }
+    }
     if tool.is_edit() {
         for p in edit_paths(root, input) {
             ledger::append(

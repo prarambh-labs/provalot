@@ -99,6 +99,71 @@ pub fn compile(text: &str) -> Policy {
     p
 }
 
+use crate::ledger::Line;
+use crate::rules::r1_tests;
+use crate::rules::Block;
+
+pub fn contains_subsequence(hay: &[String], needle: &[String]) -> bool {
+    !needle.is_empty() && hay.windows(needle.len()).any(|w| w == needle)
+}
+
+fn gate_tokens(gate: &Gate) -> Vec<String> {
+    match gate {
+        Gate::Commit => vec!["git".into(), "commit".into()],
+        Gate::Push => vec!["git".into(), "push".into()],
+    }
+}
+
+pub fn check_command(policy: &Policy, command: &str, lines: &[Line]) -> Option<Block> {
+    for seg in runner::segment_tokens(command) {
+        for rule in &policy.rules {
+            match rule {
+                PolicyRule::DenyCommand { tokens, source } if contains_subsequence(&seg, tokens) => {
+                    return Some(Block {
+                        rule: "R3.deny-command",
+                        reason: format!(
+                            "[provalot] Blocked by policy \"{source}\": the command contains `{}`. Do not run it.",
+                            tokens.join(" ")
+                        ),
+                    });
+                }
+                PolicyRule::RequireBefore { gate, runner, source }
+                    if contains_subsequence(&seg, &gate_tokens(gate))
+                        && !r1_tests::evidence_current(lines, *runner) =>
+                {
+                    let what = runner
+                        .map(|r| r.as_str().to_string())
+                        .unwrap_or_else(|| "the tests".into());
+                    return Some(Block {
+                        rule: "R3.require-before",
+                        reason: format!(
+                            "[provalot] Policy \"{source}\": no passing run of {what} is recorded since the last edit. Run {what} first, then retry."
+                        ),
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
+pub fn check_edit(policy: &Policy, rel_path: &str) -> Option<Block> {
+    for rule in &policy.rules {
+        if let PolicyRule::ProtectPath { prefix, source } = rule {
+            if rel_path == prefix || rel_path.starts_with(&format!("{prefix}/")) {
+                return Some(Block {
+                    rule: "R3.protect-path",
+                    reason: format!(
+                        "[provalot] Policy \"{source}\": {rel_path} is protected. Ask the user; they can run `provalot allow --once` to permit this edit."
+                    ),
+                });
+            }
+        }
+    }
+    None
+}
+
 pub fn load(root: &Path) -> Policy {
     let mut text = String::new();
     for name in ["CLAUDE.md", "AGENTS.md", ".claude/CLAUDE.md"] {
@@ -113,6 +178,69 @@ pub fn load(root: &Path) -> Policy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ledger::Line;
+
+    #[test]
+    fn subsequence_matching() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert!(contains_subsequence(
+            &s(&["git", "push", "--force", "origin"]),
+            &s(&["git", "push", "--force"])
+        ));
+        assert!(!contains_subsequence(
+            &s(&["git", "push", "origin", "--force"]),
+            &s(&["git", "push", "--force"])
+        ));
+        assert!(!contains_subsequence(&s(&["git"]), &s(&[])));
+    }
+
+    #[test]
+    fn check_command_and_edit() {
+        let text = std::fs::read_to_string(format!(
+            "{}/fixtures/policy/CLAUDE.md",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap();
+        let p = compile(&text);
+        assert_eq!(
+            check_command(&p, "git push --force origin main", &[])
+                .unwrap()
+                .rule,
+            "R3.deny-command"
+        );
+        assert_eq!(
+            check_command(&p, "rtk git push --force", &[]).unwrap().rule,
+            "R3.deny-command"
+        );
+        assert_eq!(
+            check_command(&p, "git commit -m x", &[]).unwrap().rule,
+            "R3.require-before"
+        );
+        let pass = Line::Run {
+            ts: 5,
+            agent_id: None,
+            tool: "Bash".into(),
+            command: "pytest".into(),
+            runner: "pytest".into(),
+            outcome: "pass".into(),
+            stdout_hash: String::new(),
+            stderr_hash: String::new(),
+            is_error: false,
+            interrupted: false,
+        };
+        assert!(check_command(&p, "git commit -m x", &[pass]).is_none());
+        assert!(check_command(&p, "ls -la", &[]).is_none());
+        assert!(
+            check_command(&p, "git push origin main", &[]).is_none(),
+            "push is not gated by this policy"
+        );
+        assert_eq!(
+            check_edit(&p, "migrations/0002_add.sql").unwrap().rule,
+            "R3.protect-path"
+        );
+        assert!(check_edit(&p, "migrations_old/x.sql").is_none());
+        assert!(check_edit(&p, "src/app.py").is_none());
+    }
 
     #[test]
     fn compiles_the_three_shapes_and_reports_the_rest() {

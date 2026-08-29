@@ -101,6 +101,14 @@ pub fn tokens(command: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Tokens of every segment with wrappers stripped.
+pub fn segment_tokens(command: &str) -> Vec<Vec<String>> {
+    segments(command)
+        .iter()
+        .map(|s| strip_wrappers(&split_tokens(s)))
+        .collect()
+}
+
 fn classify_tokens(t: &[String]) -> Runner {
     let Some(first) = t.first() else {
         return Runner::Other;
