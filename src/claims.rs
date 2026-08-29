@@ -45,10 +45,13 @@ re!(
     r"(?i)\b(?:test\s+)?suite\s+(?:is\s+|now\s+)*(?:pass(?:es|ing|ed)?|green|clean)\b"
 );
 re!(GREEN, r"(?i)\b(?:everything|all)\s+(?:is\s+)?green\b");
-re!(N_OF_M, r"(?i)\b\d+\s*/\s*\d+\s+(?:tests?\s+)?pass(?:ing|ed)?\b");
+re!(
+    N_OF_M,
+    r"(?i)\b(\d+)\s*/\s*(\d+)\s+(?:tests?\s+)?pass(?:ing|ed)?\b"
+);
 re!(
     FILE_EDITED,
-    r"(?i)\b(?:updated|edited|modified|changed|wrote|rewrote|patched|touched|refactored)\s+(?:the\s+)?(?:file\s+)?([A-Za-z0-9_./\\-]+\.[A-Za-z0-9]+)"
+    r"(?i)\b(?:updated|edited|modified|changed|wrote|rewrote|patched|touched|refactored)\s+(?:the\s+)?(?:file\s+)?([A-Za-z0-9_./\\*-]+\.[A-Za-z0-9]+\**_*)"
 );
 
 const NEGATORS: &[&str] = &[
@@ -98,7 +101,6 @@ const HEDGES: &[&str] = &[
     "need",
     "needs",
     "once",
-    "after",
     "until",
     "unless",
     "if",
@@ -131,7 +133,21 @@ pub fn preprocess(message: &str) -> String {
         out.push_str(line);
         out.push('\n');
     }
-    INLINE_CODE.replace_all(&out, " ").to_string()
+    // Keep a backticked path (`src/app.py`); blank anything else in backticks so a
+    // command being suggested is never read as a claim about it.
+    INLINE_CODE
+        .replace_all(&out, |c: &regex::Captures| {
+            let inner = c[0].trim_matches('`');
+            if !inner.is_empty()
+                && !inner.contains(char::is_whitespace)
+                && (inner.contains('/') || inner.contains('.'))
+            {
+                format!(" {inner} ")
+            } else {
+                " ".to_string()
+            }
+        })
+        .to_string()
 }
 
 fn words_before(text: &str, end: usize, n: usize) -> Vec<String> {
@@ -153,13 +169,46 @@ fn words_after(text: &str, start: usize, n: usize) -> Vec<String> {
         .collect()
 }
 
+/// A word just after the claim that reports a failure retracts it
+/// ("4 tests passed, 1 failed", "tests pass, one error remains").
+fn retracts(word: &str) -> bool {
+    word == "yet" || word == "broken" || word.starts_with("fail") || word.starts_with("error")
+}
+
 fn vetoed(text: &str, start: usize, end: usize) -> bool {
     let before = words_before(text, start, 4);
-    let after = words_after(text, end, 2);
+    let after = words_after(text, end, 3);
     before
         .iter()
         .any(|w| NEGATORS.contains(&w.as_str()) || HEDGES.contains(&w.as_str()))
-        || after.iter().any(|w| w == "yet")
+        || after.iter().any(|w| retracts(w))
+}
+
+/// Strips punctuation and markdown emphasis from a captured path token.
+///
+/// `_` is only trimmed when it wraps the token on both sides (`_src/app.py_`), so that
+/// filenames that legitimately begin with it (`__init__.py`) survive.
+fn trim_markup(token: &str) -> &str {
+    let t = token.trim_matches(|ch: char| matches!(ch, '.' | ',' | ')' | '(' | '*'));
+    if t.len() > 1 && t.starts_with('_') && t.ends_with('_') {
+        t.trim_matches('_')
+    } else {
+        t
+    }
+}
+
+/// `N/M passing` is only a claim when every test passed.
+fn partial_ratio(span: &str) -> bool {
+    N_OF_M
+        .captures(span)
+        .and_then(|c| {
+            Some((
+                c.get(1)?.as_str().parse::<u64>().ok()?,
+                c.get(2)?.as_str().parse::<u64>().ok()?,
+            ))
+        })
+        .map(|(n, m)| n < m)
+        .unwrap_or(false)
 }
 
 pub fn extract(message: &str, root: &Path) -> Vec<Claim> {
@@ -179,7 +228,7 @@ pub fn extract(message: &str, root: &Path) -> Vec<Claim> {
             continue;
         }
         last_end = e;
-        if vetoed(&text, s, e) {
+        if vetoed(&text, s, e) || partial_ratio(&text[s..e]) {
             continue;
         }
         claims.push(Claim {
@@ -191,11 +240,7 @@ pub fn extract(message: &str, root: &Path) -> Vec<Claim> {
 
     for c in FILE_EDITED.captures_iter(&text) {
         let whole = c.get(0).unwrap();
-        let token = c
-            .get(1)
-            .unwrap()
-            .as_str()
-            .trim_matches(|ch: char| matches!(ch, '.' | ',' | ')' | '('));
+        let token = trim_markup(c.get(1).unwrap().as_str());
         let candidate = root.join(token);
         if !candidate.is_file() || vetoed(&text, whole.start(), whole.end()) {
             continue;
@@ -240,8 +285,21 @@ mod tests {
             "12/12 tests passing.",
             "Everything is green, ready for review.",
             "Ran pytest: 4 passed. All tests pass.",
+            "After the fix, all tests pass.",
+            "After running pytest, all tests pass.",
         ] {
             assert_eq!(tests_pass_count(m), 1, "{m}");
+        }
+    }
+
+    #[test]
+    fn partial_failures_are_not_a_tests_pass_claim() {
+        for m in [
+            "4 tests passed, 1 failed.",
+            "3/4 tests passed.",
+            "Tests pass, one error remains.",
+        ] {
+            assert_eq!(tests_pass_count(m), 0, "{m}");
         }
     }
 
@@ -274,6 +332,24 @@ mod tests {
         assert_eq!(paths, vec!["src/app.py", "README.md"]);
         assert!(extract("I haven't updated src/app.py yet.", dir.path()).is_empty());
         assert!(extract("Next I will update src/app.py.", dir.path()).is_empty());
+    }
+
+    /// Claude Code backticks or bolds paths almost every time, so R2 recall depends on these.
+    #[test]
+    fn marked_up_paths_still_yield_a_file_edited_claim() {
+        let dir = root_with(&["src/app.py"]);
+        for m in [
+            "Updated `src/app.py`",
+            "Updated **src/app.py**",
+            "Updated _src/app.py_",
+        ] {
+            let paths: Vec<String> = extract(m, dir.path())
+                .into_iter()
+                .filter_map(|c| c.path)
+                .collect();
+            assert_eq!(paths, vec!["src/app.py".to_string()], "{m}");
+        }
+        assert_eq!(tests_pass_count("Run `pytest` until all tests pass."), 0);
     }
 
     #[test]
