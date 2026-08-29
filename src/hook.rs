@@ -7,6 +7,7 @@ use crate::evidence::{outcome, runner};
 use crate::ledger::{self, Line};
 use crate::output;
 use crate::repo;
+use crate::rules;
 
 pub struct HookOutcome {
     pub stdout: Option<String>,
@@ -37,19 +38,7 @@ pub fn run(harness: Harness, stdin_json: &str) -> Result<HookOutcome, String> {
         }
         Event::Stop {
             common, last_message, ..
-        } => {
-            let found = claims::extract(&last_message, &root);
-            if found.iter().any(|c| c.class == claims::ClaimClass::TestsPass) {
-                HookOutcome {
-                    stdout: Some(output::stop_block(
-                        "[provalot] Claimed tests pass, but no test runner has passed in this session. Run the tests now, or say they were not run.",
-                    )),
-                }
-            } else {
-                let _ = common;
-                NONE
-            }
-        }
+        } => on_stop(&root, &common, &last_message)?,
         _ => NONE,
     })
 }
@@ -96,6 +85,75 @@ fn on_pre_tool(
         }
     }
     Ok(NONE)
+}
+
+fn on_stop(root: &Path, common: &Common, last_message: &str) -> Result<HookOutcome, String> {
+    let lines = ledger::read(root, &common.session_id);
+    let found = claims::extract(last_message, root);
+    for c in &found {
+        ledger::append(
+            root,
+            &common.session_id,
+            &Line::Claim {
+                ts: ledger::now_ms(),
+                agent_id: common.agent_id.clone(),
+                event: common.event_name.clone(),
+                class: c.class.as_str().to_string(),
+                text: c.text.clone(),
+                path: c.path.clone(),
+            },
+        )?;
+    }
+    let mut blocks = Vec::new();
+    if !rules::disabled(rules::r1_tests::ID) {
+        blocks.extend(rules::r1_tests::evaluate(&lines, &found));
+    }
+    record_and_answer(root, common, &lines, blocks)
+}
+
+fn record_and_answer(
+    root: &Path,
+    common: &Common,
+    _lines: &[Line],
+    blocks: Vec<rules::Block>,
+) -> Result<HookOutcome, String> {
+    let ts = ledger::now_ms();
+    match blocks.into_iter().next() {
+        Some(b) => {
+            ledger::append(
+                root,
+                &common.session_id,
+                &Line::Decision {
+                    ts,
+                    agent_id: common.agent_id.clone(),
+                    event: common.event_name.clone(),
+                    decision: "block".into(),
+                    rule: b.rule.into(),
+                    reason: b.reason.clone(),
+                    consecutive: 1,
+                },
+            )?;
+            Ok(HookOutcome {
+                stdout: Some(output::stop_block(&b.reason)),
+            })
+        }
+        None => {
+            ledger::append(
+                root,
+                &common.session_id,
+                &Line::Decision {
+                    ts,
+                    agent_id: common.agent_id.clone(),
+                    event: common.event_name.clone(),
+                    decision: "allow".into(),
+                    rule: String::new(),
+                    reason: String::new(),
+                    consecutive: 0,
+                },
+            )?;
+            Ok(NONE)
+        }
+    }
 }
 
 fn pending_hash(lines: &[Line], tool_use_id: &Option<String>, path: &str) -> Option<String> {

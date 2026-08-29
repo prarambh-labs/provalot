@@ -8,3 +8,4 @@ pub mod hook;
 pub mod ledger;
 pub mod output;
 pub mod repo;
+pub mod rules;
