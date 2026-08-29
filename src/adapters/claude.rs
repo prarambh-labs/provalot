@@ -8,12 +8,12 @@ pub fn s(v: &Value, k: &str) -> Option<String> {
     v.get(k).and_then(|x| x.as_str()).map(|x| x.to_string())
 }
 
-fn common(raw: &Value) -> Result<Common, String> {
+fn common(raw: &Value, harness: Harness) -> Result<Common, String> {
     let session_id = s(raw, "session_id").ok_or("missing session_id")?;
     let cwd = s(raw, "cwd").map(PathBuf::from).ok_or("missing cwd")?;
     let event_name = s(raw, "hook_event_name").ok_or("missing hook_event_name")?;
     Ok(Common {
-        harness: Harness::Claude,
+        harness,
         session_id,
         cwd,
         event_name,
@@ -23,7 +23,7 @@ fn common(raw: &Value) -> Result<Common, String> {
 
 pub fn tool_from_name(name: &str) -> Tool {
     match name {
-        "Bash" => Tool::Bash,
+        "Bash" | "shell" => Tool::Bash,
         "Edit" => Tool::Edit,
         "Write" => Tool::Write,
         "MultiEdit" => Tool::MultiEdit,
@@ -40,7 +40,7 @@ fn input(raw: &Value) -> ToolInput {
         file_path: s(&ti, "file_path")
             .or_else(|| s(&ti, "notebook_path"))
             .map(PathBuf::from),
-        patch: None,
+        patch: s(&ti, "patch").or_else(|| s(&ti, "input")),
     }
 }
 
@@ -52,7 +52,7 @@ pub fn response(raw: &Value) -> ToolResponse {
             ..Default::default()
         },
         Value::Object(_) => ToolResponse {
-            stdout: s(&tr, "stdout").unwrap_or_default(),
+            stdout: s(&tr, "stdout").or_else(|| s(&tr, "output")).unwrap_or_default(),
             stderr: s(&tr, "stderr").unwrap_or_default(),
             is_error: tr.get("is_error").and_then(|b| b.as_bool()).unwrap_or(false),
             interrupted: tr.get("interrupted").and_then(|b| b.as_bool()).unwrap_or(false),
@@ -62,7 +62,11 @@ pub fn response(raw: &Value) -> ToolResponse {
 }
 
 pub fn parse(raw: &Value) -> Result<Event, String> {
-    let common = common(raw)?;
+    parse_with(raw, Harness::Claude)
+}
+
+pub(crate) fn parse_with(raw: &Value, harness: Harness) -> Result<Event, String> {
+    let common = common(raw, harness)?;
     let name = common.event_name.clone();
     let tool_use_id = s(raw, "tool_use_id");
     let tool = tool_from_name(&s(raw, "tool_name").unwrap_or_default());
