@@ -3,8 +3,10 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { version } = require('./package.json');
+const CHECKSUMS = require('./checksums.json');
 
 const TARGETS = {
   'darwin-arm64': 'aarch64-apple-darwin',
@@ -27,6 +29,38 @@ function assetName(t) {
 
 function assetUrl(t) {
   return process.env.PROVALOT_BINARY_URL || `https://github.com/vaishach0523-P1/provalot/releases/download/v${version}/${assetName(t)}`;
+}
+
+/**
+ * SHA-256 hex digest the downloaded asset must match. Fails closed: no recorded digest means no install.
+ * A PROVALOT_BINARY_URL override must be paired with PROVALOT_BINARY_SHA256.
+ */
+function expectedDigest(name, env = process.env, checksums = CHECKSUMS) {
+  if (env.PROVALOT_BINARY_URL) {
+    const d = env.PROVALOT_BINARY_SHA256;
+    if (!d || !/^[0-9a-fA-F]{64}$/.test(d)) {
+      throw new Error('provalot: PROVALOT_BINARY_URL requires PROVALOT_BINARY_SHA256 (64 hex chars) so the download can be verified');
+    }
+    return d.toLowerCase();
+  }
+  const d = checksums[name];
+  if (!d || !/^[0-9a-fA-F]{64}$/.test(d)) {
+    throw new Error(`provalot: no checksum recorded for ${name} in this package; refusing to install an unverified binary. Install with: cargo install provalot`);
+  }
+  return d.toLowerCase();
+}
+
+function sha256File(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+/** Deletes the file and throws when its digest does not match. */
+function verify(file, expected) {
+  const got = sha256File(file);
+  if (got !== expected) {
+    fs.unlinkSync(file);
+    throw new Error(`provalot: checksum mismatch for ${path.basename(file)}: expected ${expected}, got ${got}`);
+  }
 }
 
 function download(url, dest, redirects = 0) {
@@ -55,7 +89,9 @@ async function main() {
   const binDir = path.join(__dirname, 'bin');
   fs.mkdirSync(binDir, { recursive: true });
   const asset = path.join(binDir, assetName(t));
+  const expected = expectedDigest(assetName(t));
   await download(assetUrl(t), asset);
+  verify(asset, expected);
   if (asset.endsWith('.zip')) {
     execFileSync('powershell', ['-NoProfile', '-Command', `Expand-Archive -Force -Path "${asset}" -DestinationPath "${binDir}"`]);
   } else {
@@ -65,7 +101,7 @@ async function main() {
   fs.unlinkSync(asset);
 }
 
-module.exports = { target, assetName, assetUrl };
+module.exports = { target, assetName, assetUrl, expectedDigest, sha256File, verify };
 
 if (require.main === module) {
   main().catch((e) => {

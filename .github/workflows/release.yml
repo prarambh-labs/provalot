@@ -28,10 +28,14 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
       - name: package (unix)
         if: runner.os != 'Windows'
-        run: tar -czf provalot-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release provalot
+        run: |
+          tar -czf provalot-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release provalot
+          shasum -a 256 provalot-${{ matrix.target }}.tar.gz > provalot-${{ matrix.target }}.tar.gz.sha256
       - name: package (windows)
         if: runner.os == 'Windows'
-        run: Compress-Archive -Path target/${{ matrix.target }}/release/provalot.exe -DestinationPath provalot-${{ matrix.target }}.zip
+        run: |
+          Compress-Archive -Path target/${{ matrix.target }}/release/provalot.exe -DestinationPath provalot-${{ matrix.target }}.zip
+          "$((Get-FileHash provalot-${{ matrix.target }}.zip -Algorithm SHA256).Hash.ToLower())  provalot-${{ matrix.target }}.zip" | Out-File -Encoding ascii provalot-${{ matrix.target }}.zip.sha256
       - uses: softprops/action-gh-release@v2
         with:
           files: provalot-${{ matrix.target }}.*

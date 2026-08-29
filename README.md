@@ -46,6 +46,10 @@ The agent runs `pytest`, the ledger records a passing run, the next Stop is allo
 
 Project hooks load only after you trust them: in Codex run `/hooks`, review `provalot hook codex`, and trust it.
 
+## npm install integrity
+
+`npm/install.js` downloads the release binary for your platform and refuses to install it unless its SHA-256 matches the digest recorded in `npm/checksums.json` (filled from the release's `*.sha256` files by `scripts/npm-checksums.sh vX.Y.Z` before `npm publish`). `PROVALOT_BINARY_URL` overrides the download URL only when paired with `PROVALOT_BINARY_SHA256`.
+
 ## What it records
 
 `.provalot/sessions/<id>.jsonl`: commands, runner, outcome, file paths and hashes, claims, decisions. Never file contents, never command output (hashes only). `.provalot/` is git-ignored by `init`. No telemetry.
