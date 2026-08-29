@@ -35,11 +35,21 @@ pub fn run(harness: Harness, stdin_json: &str) -> Result<HookOutcome, String> {
             on_post_tool(&root, &common, &tool, tool_use_id, &input, &response)?;
             NONE
         }
-        Event::Stop { last_message, .. } if claims::has_tests_pass_claim(&last_message) => HookOutcome {
-            stdout: Some(output::stop_block(
-                "[provalot] Claimed tests pass, but no test runner has passed in this session. Run the tests now, or say they were not run.",
-            )),
-        },
+        Event::Stop {
+            common, last_message, ..
+        } => {
+            let found = claims::extract(&last_message, &root);
+            if found.iter().any(|c| c.class == claims::ClaimClass::TestsPass) {
+                HookOutcome {
+                    stdout: Some(output::stop_block(
+                        "[provalot] Claimed tests pass, but no test runner has passed in this session. Run the tests now, or say they were not run.",
+                    )),
+                }
+            } else {
+                let _ = common;
+                NONE
+            }
+        }
         _ => NONE,
     })
 }
