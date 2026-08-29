@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::adapters;
 use crate::claims;
@@ -19,6 +19,12 @@ pub fn run(harness: Harness, stdin_json: &str) -> Result<HookOutcome, String> {
     let event = adapters::parse(harness, &raw)?;
     let root = repo::find_root(&event.common().cwd);
     Ok(match event {
+        Event::PreToolUse {
+            common,
+            tool,
+            tool_use_id,
+            input,
+        } => on_pre_tool(&root, &common, &tool, tool_use_id, &input)?,
         Event::PostToolUse {
             common,
             tool,
@@ -38,11 +44,67 @@ pub fn run(harness: Harness, stdin_json: &str) -> Result<HookOutcome, String> {
     })
 }
 
+/// Files an edit tool touches: `file_path`, or the paths named in an apply_patch body.
+pub fn edit_paths(root: &Path, input: &ToolInput) -> Vec<PathBuf> {
+    if let Some(p) = &input.file_path {
+        return vec![if p.is_absolute() { p.clone() } else { root.join(p) }];
+    }
+    let Some(patch) = &input.patch else {
+        return Vec::new();
+    };
+    patch
+        .lines()
+        .filter_map(|l| {
+            l.strip_prefix("*** Update File: ")
+                .or_else(|| l.strip_prefix("*** Add File: "))
+                .or_else(|| l.strip_prefix("*** Delete File: "))
+        })
+        .map(|p| root.join(p.trim()))
+        .collect()
+}
+
+fn on_pre_tool(
+    root: &Path,
+    common: &Common,
+    tool: &Tool,
+    tool_use_id: Option<String>,
+    input: &ToolInput,
+) -> Result<HookOutcome, String> {
+    if tool.is_edit() {
+        for p in edit_paths(root, input) {
+            ledger::append(
+                root,
+                &common.session_id,
+                &Line::EditPending {
+                    ts: ledger::now_ms(),
+                    agent_id: common.agent_id.clone(),
+                    tool_use_id: tool_use_id.clone(),
+                    path: repo::rel(root, &p),
+                    hash_before: repo::sha256_file(&p),
+                },
+            )?;
+        }
+    }
+    Ok(NONE)
+}
+
+fn pending_hash(lines: &[Line], tool_use_id: &Option<String>, path: &str) -> Option<String> {
+    lines.iter().rev().find_map(|l| match l {
+        Line::EditPending {
+            tool_use_id: id,
+            path: p,
+            hash_before,
+            ..
+        } if p == path && (tool_use_id.is_none() || id == tool_use_id) => Some(hash_before.clone()),
+        _ => None,
+    })?
+}
+
 fn on_post_tool(
     root: &Path,
     common: &Common,
     tool: &Tool,
-    _tool_use_id: Option<String>,
+    tool_use_id: Option<String>,
     input: &ToolInput,
     response: &ToolResponse,
 ) -> Result<(), String> {
@@ -72,6 +134,28 @@ fn on_post_tool(
                 interrupted: response.interrupted,
             },
         )?;
+    }
+    if tool.is_edit() {
+        let lines = ledger::read(root, &common.session_id);
+        for p in edit_paths(root, input) {
+            let path = repo::rel(root, &p);
+            let hash_before = pending_hash(&lines, &tool_use_id, &path);
+            let hash_after = repo::sha256_file(&p);
+            let changed = hash_before != hash_after;
+            ledger::append(
+                root,
+                &common.session_id,
+                &Line::Edit {
+                    ts: ledger::now_ms(),
+                    agent_id: common.agent_id.clone(),
+                    tool: tool.as_str(),
+                    path,
+                    hash_before,
+                    hash_after,
+                    changed,
+                },
+            )?;
+        }
     }
     Ok(())
 }
