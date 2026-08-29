@@ -45,6 +45,8 @@ enum Cmd {
     Report { session: Option<String> },
     /// Counts across all sessions in this repo
     Stats,
+    /// Replay canned sessions; every rule must block its bad case and allow its good case
+    Selftest,
 }
 
 fn main() {
@@ -104,6 +106,26 @@ fn main() {
             }
         }
         Cmd::Stats => print!("{}", provalot::stats::render(&root_from_cwd())),
+        Cmd::Selftest => {
+            let results = provalot::selftest::run();
+            let mut failed = false;
+            for (name, ok, detail) in &results {
+                if *ok {
+                    println!("PASS {name}");
+                } else {
+                    failed = true;
+                    println!("FAIL {name} ({detail})");
+                }
+            }
+            println!(
+                "{} of {} cases passed",
+                results.iter().filter(|r| r.1).count(),
+                results.len()
+            );
+            if failed {
+                std::process::exit(1);
+            }
+        }
     }
 }
 
