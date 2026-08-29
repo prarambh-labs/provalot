@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": "github:provalot/provalot",
   "bin": { "provalot": "bin/provalot.js" },
-  "scripts": { "postinstall": "node install.js", "test": "node --test test/" },
+  "scripts": { "postinstall": "node install.js", "test": "node --test" },
   "files": ["install.js", "bin/provalot.js"],
   "engines": { "node": ">=18" }
 }
