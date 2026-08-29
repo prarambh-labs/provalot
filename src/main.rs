@@ -21,7 +21,22 @@ fn main() {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Hook { harness } => {
-            eprintln!("provalot: hook for {harness} not implemented yet");
+            use std::io::Read;
+            let harness = match harness.as_str() {
+                "claude" => provalot::event::Harness::Claude,
+                "codex" => provalot::event::Harness::Codex,
+                _ => std::process::exit(0),
+            };
+            let mut input = String::new();
+            let _ = std::io::stdin().read_to_string(&mut input);
+            match provalot::hook::run(harness, &input) {
+                Ok(out) => {
+                    if let Some(s) = out.stdout {
+                        println!("{s}");
+                    }
+                }
+                Err(e) => eprintln!("provalot: {e}"),
+            }
             std::process::exit(0);
         }
     }
