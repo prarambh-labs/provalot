@@ -155,10 +155,12 @@ fn write_json(path: &Path, value: &Value) -> Result<(), String> {
 pub fn ensure_gitignore(root: &Path) -> Result<bool, String> {
     let p = root.join(".gitignore");
     let existing = std::fs::read_to_string(&p).unwrap_or_default();
-    if existing
-        .lines()
-        .any(|l| l.trim() == ".provalot/" || l.trim() == ".provalot")
-    {
+    if existing.lines().any(|l| {
+        matches!(
+            l.trim(),
+            ".provalot" | ".provalot/" | "/.provalot" | "/.provalot/"
+        )
+    }) {
         return Ok(false);
     }
     let sep = if existing.is_empty() || existing.ends_with('\n') {
@@ -278,5 +280,24 @@ mod tests {
         assert_eq!(s["hooks"]["PreToolUse"].as_array().unwrap().len(), 1);
         assert!(s["hooks"].get("Stop").is_none(), "empty arrays are dropped");
         assert!(!remove_hooks(&mut s));
+    }
+
+    #[test]
+    fn gitignore_accepts_every_spelling_of_the_entry() {
+        for line in [".provalot", ".provalot/", "/.provalot", "/.provalot/"] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join(".gitignore"), format!("target\n{line}\n")).unwrap();
+            assert!(
+                !ensure_gitignore(dir.path()).unwrap(),
+                "{line} is already ignored"
+            );
+        }
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "target").unwrap();
+        assert!(ensure_gitignore(dir.path()).unwrap());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(".gitignore")).unwrap(),
+            "target\n.provalot/\n"
+        );
     }
 }

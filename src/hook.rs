@@ -61,6 +61,11 @@ fn line_agent(l: &Line) -> Option<&String> {
 }
 
 /// The main agent sees every line; a subagent sees its own lines plus unscoped ones.
+///
+/// Spec §8 asks for strict per-agent isolation. Deviation: whether the harnesses stamp
+/// `agent_id` on tool payloads is unverified, so scoping a subagent to its own lines only
+/// would drop its real evidence and block honest work. Unscoped lines are therefore shared.
+/// Tighten in v1 once the stamping is confirmed.
 pub fn scoped(lines: Vec<Line>, agent_id: &Option<String>) -> Vec<Line> {
     match agent_id {
         None => lines,

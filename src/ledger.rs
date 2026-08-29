@@ -108,8 +108,11 @@ pub fn append(root: &Path, session_id: &str, line: &Line) -> Result<(), String> 
         .append(true)
         .open(&p)
         .map_err(|e| e.to_string())?;
-    let json = serde_json::to_string(line).map_err(|e| e.to_string())?;
-    writeln!(f, "{json}").map_err(|e| e.to_string())
+    let mut json = serde_json::to_string(line).map_err(|e| e.to_string())?;
+    json.push('\n');
+    // One `write(2)`: two hook processes appending concurrently must not interleave
+    // a record and its newline into an unparseable line.
+    f.write_all(json.as_bytes()).map_err(|e| e.to_string())
 }
 
 pub fn read(root: &Path, session_id: &str) -> Vec<Line> {
