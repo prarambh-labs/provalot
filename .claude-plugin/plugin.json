@@ -1,0 +1,8 @@
+{
+  "name": "provalot",
+  "description": "Deterministic evidence gate: blocks \"done\" when the session ledger has no evidence for the claim",
+  "version": "0.1.0",
+  "author": { "name": "Prarambh LLC" },
+  "homepage": "https://github.com/provalot/provalot",
+  "license": "MIT"
+}

@@ -1,0 +1,11 @@
+{
+  "name": "provalot",
+  "version": "0.1.0",
+  "description": "Deterministic evidence gate for coding agents (Claude Code, Codex CLI)",
+  "license": "MIT",
+  "repository": "github:provalot/provalot",
+  "bin": { "provalot": "bin/provalot.js" },
+  "scripts": { "postinstall": "node install.js", "test": "node --test test/" },
+  "files": ["install.js", "bin/provalot.js"],
+  "engines": { "node": ">=18" }
+}
