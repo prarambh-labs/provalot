@@ -142,7 +142,12 @@ pub fn command_paths(cwd: &Path, command: &str) -> Vec<PathBuf> {
             || [format!("> {t}"), format!(">{t}"), format!("-o {t}")]
                 .iter()
                 .any(|w| command.contains(w));
-        let keep = p.is_file() || (!p.exists() && written_to && p.parent().is_some_and(|d| d.is_dir()));
+        let has_ext = t
+            .rsplit('/')
+            .next()
+            .is_some_and(|b| b.contains('.') && !b.starts_with('.'));
+        let keep =
+            p.is_file() || (!p.exists() && written_to && has_ext && p.parent().is_some_and(|d| d.is_dir()));
         if keep && !out.contains(&p) {
             out.push(p);
             if out.len() == 32 {
@@ -324,33 +329,8 @@ fn on_post_tool(
     input: &ToolInput,
     response: &ToolResponse,
 ) -> Result<(), String> {
-    if *tool == Tool::Bash {
-        let command = input.command.clone().unwrap_or_default();
-        let r = runner::classify(&command);
-        let o = outcome::infer(
-            r,
-            &response.stdout,
-            &response.stderr,
-            response.is_error,
-            response.interrupted,
-        );
-        ledger::append(
-            root,
-            &common.session_id,
-            &Line::Run {
-                ts: ledger::now_ms(),
-                agent_id: common.agent_id.clone(),
-                tool: tool.as_str(),
-                command,
-                runner: r.as_str().to_string(),
-                outcome: o.as_str().to_string(),
-                stdout_hash: repo::sha256_str(&response.stdout),
-                stderr_hash: repo::sha256_str(&response.stderr),
-                is_error: response.is_error,
-                interrupted: response.interrupted,
-            },
-        )?;
-    }
+    // Edits a command made are recorded before its run line: within one Bash call the write
+    // precedes the test, so a `sed … && cargo test` must not read as an edit after a passing run.
     if *tool == Tool::Bash {
         let command = input.command.clone().unwrap_or_default();
         let paths = command_paths(&common.cwd, &command);
@@ -380,6 +360,33 @@ fn on_post_tool(
                 )?;
             }
         }
+    }
+    if *tool == Tool::Bash {
+        let command = input.command.clone().unwrap_or_default();
+        let r = runner::classify(&command);
+        let o = outcome::infer(
+            r,
+            &response.stdout,
+            &response.stderr,
+            response.is_error,
+            response.interrupted,
+        );
+        ledger::append(
+            root,
+            &common.session_id,
+            &Line::Run {
+                ts: ledger::now_ms(),
+                agent_id: common.agent_id.clone(),
+                tool: tool.as_str(),
+                command,
+                runner: r.as_str().to_string(),
+                outcome: o.as_str().to_string(),
+                stdout_hash: repo::sha256_str(&response.stdout),
+                stderr_hash: repo::sha256_str(&response.stderr),
+                is_error: response.is_error,
+                interrupted: response.interrupted,
+            },
+        )?;
     }
     if tool.is_edit() {
         let lines = ledger::read(root, &common.session_id);
@@ -419,7 +426,7 @@ mod tests {
         std::fs::write(cwd.join("src/app.py"), "x").unwrap();
         let cmd = "FOO=1 sed -i '' 's/1/2/' src/app.py && cat > notes/new.md <<'EOF'\nhi\nEOF\n\
                    python3 - <<'PY'\nimport pathlib; pathlib.Path('src/app.py').write_text('y')\nPY\n\
-                   curl https://example.com/x.tar.gz -o /nonexistent-dir/x.tar.gz; ls src/; echo 1.23 v2.0 ./src/app.py; echo hi > new.md";
+                   curl https://example.com/x.tar.gz -o /nonexistent-dir/x.tar.gz; ls src/; echo 1.23 v2.0 ./src/app.py; echo hi > new.md; sed -i '' 's/print(1)/print(2)/' src/app.py; cat > /nothing";
         let got = command_paths(cwd, cmd);
         assert_eq!(
             got,

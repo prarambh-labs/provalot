@@ -45,6 +45,18 @@ pub fn evidence_current(lines: &[Line], want: Option<Runner>) -> bool {
     }
 }
 
+/// First line of a command, cut to 80 chars, so a heredoc never lands in a block reason.
+fn summary(command: &str) -> String {
+    let first = command.lines().next().unwrap_or("");
+    if first.chars().count() > 80 {
+        format!("{}…", first.chars().take(80).collect::<String>())
+    } else if command.contains('\n') {
+        format!("{first}…")
+    } else {
+        first.to_string()
+    }
+}
+
 pub fn evaluate(lines: &[Line], claims: &[Claim]) -> Option<Block> {
     if !claims.iter().any(|c| c.class == ClaimClass::TestsPass) {
         return None;
@@ -56,7 +68,7 @@ pub fn evaluate(lines: &[Line], claims: &[Claim]) -> Option<Block> {
         .map(|(_, p)| format!("last edit: {p}"))
         .unwrap_or_else(|| "no edits recorded".into());
     let run = last_passing_run(lines, None)
-        .map(|(_, c)| format!("last passing run: {c}"))
+        .map(|(_, c)| format!("last passing run: {}", summary(&c)))
         .unwrap_or_else(|| "no passing test run recorded".into());
     Some(Block {
         rule: ID,
