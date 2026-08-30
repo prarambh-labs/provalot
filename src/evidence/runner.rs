@@ -133,7 +133,7 @@ fn strip_wrappers(tokens: &[String]) -> Vec<String> {
 fn split_tokens(segment: &str) -> Vec<String> {
     segment
         .split_whitespace()
-        .map(|s| s.trim_matches(|c| c == '\'' || c == '"').to_string())
+        .map(|s| s.trim_matches(['\'', '"', '(', ')']).to_string())
         .collect()
 }
 
@@ -301,6 +301,7 @@ mod tests {
             ("python3 - <<'EOF'\nx=1\nEOF\npytest -q", Runner::Pytest),
             ("cat > notes.md <<EOF\nrun tests/test_all.sh\nEOF", Runner::Other),
             ("seen_test = True", Runner::Other),
+            ("cd x; (bash tools/test_claude_service.sh > /tmp/o 2>&1 & bash tools/test_claude_service.sh)", Runner::Script),
             ("want=('Goal check-in:', 'x')", Runner::Other),
             ("vim tests/test_foo.py", Runner::Other),
             ("make build", Runner::Other),
