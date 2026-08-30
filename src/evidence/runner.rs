@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Runner {
     Pytest,
+    Unittest,
     Cargo,
     NpmTest,
     Vitest,
@@ -18,6 +19,7 @@ impl Runner {
     pub fn as_str(self) -> &'static str {
         match self {
             Runner::Pytest => "pytest",
+            Runner::Unittest => "unittest",
             Runner::Cargo => "cargo",
             Runner::NpmTest => "npm-test",
             Runner::Vitest => "vitest",
@@ -34,6 +36,7 @@ impl Runner {
     pub fn parse(s: &str) -> Runner {
         match s {
             "pytest" => Runner::Pytest,
+            "unittest" => Runner::Unittest,
             "cargo" => Runner::Cargo,
             "npm-test" => Runner::NpmTest,
             "vitest" => Runner::Vitest,
@@ -137,11 +140,13 @@ fn classify_tokens(t: &[String]) -> Runner {
     let first = first.rsplit('/').next().unwrap_or(first).to_string();
     let rest: Vec<&str> = t.iter().skip(1).map(|s| s.as_str()).collect();
     let has_m_pytest = rest.windows(2).any(|w| w[0] == "-m" && w[1] == "pytest");
+    let has_m_unittest = rest.windows(2).any(|w| w[0] == "-m" && w[1] == "unittest");
     match first.as_str() {
         "pytest" | "py.test" => Runner::Pytest,
         "python" | "python3" | "uv" | "poetry" | "pipenv" if has_m_pytest || rest.contains(&"pytest") => {
             Runner::Pytest
         }
+        "python" | "python3" | "uv" | "poetry" | "pipenv" if has_m_unittest => Runner::Unittest,
         "cargo" if matches!(rest.first(), Some(&"test") | Some(&"nextest")) => Runner::Cargo,
         "npm" | "pnpm" | "yarn" | "bun"
             if matches!(rest.first(), Some(&"test") | Some(&"t"))
@@ -216,6 +221,13 @@ mod tests {
             ("cd api && python -m pytest -x", Runner::Pytest),
             ("FOO=1 pytest", Runner::Pytest),
             ("uv run pytest", Runner::Pytest),
+            ("python3 -m unittest discover -s tests -q", Runner::Unittest),
+            ("python -m unittest tests.test_app", Runner::Unittest),
+            (
+                "a && python3 -m unittest discover -s tests -q; b",
+                Runner::Unittest,
+            ),
+            ("cd api && rtk python3 -m unittest -v", Runner::Unittest),
             ("cargo test --workspace", Runner::Cargo),
             ("rtk cargo test", Runner::Cargo),
             ("cargo nextest run", Runner::Cargo),
@@ -276,6 +288,7 @@ mod tests {
     fn runner_round_trips() {
         for r in [
             Runner::Pytest,
+            Runner::Unittest,
             Runner::Cargo,
             Runner::NpmTest,
             Runner::Vitest,

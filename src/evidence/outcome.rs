@@ -29,6 +29,8 @@ macro_rules! re {
 
 re!(PYTEST_FAIL, r"(?m)\b(\d+) (?:failed|errors?)\b");
 re!(PYTEST_PASS, r"(?m)\b(\d+) passed\b");
+re!(UNITTEST_FAIL, r"(?m)^FAILED\b");
+re!(UNITTEST_PASS, r"(?m)^Ran (\d+) tests?[^\n]*\n+OK\b");
 re!(CARGO_FAIL, r"(?m)^test result: FAILED");
 re!(CARGO_PASS, r"(?m)^test result: ok");
 re!(
@@ -86,6 +88,7 @@ pub fn infer(runner: Runner, stdout: &str, stderr: &str, is_error: bool, interru
     let py = || (nonzero(&PYTEST_FAIL, &text), nonzero(&PYTEST_PASS, &text));
     let (fail, pass) = match runner {
         Runner::Pytest => py(),
+        Runner::Unittest => (UNITTEST_FAIL.is_match(&text), UNITTEST_PASS.is_match(&text)),
         Runner::Cargo => (
             CARGO_FAIL.is_match(&text) || nonzero(&RTK_CARGO_FAIL, &text),
             CARGO_PASS.is_match(&text) || nonzero(&RTK_CARGO_PASS, &text),
@@ -137,6 +140,8 @@ mod tests {
         let cases = [
             (Runner::Pytest, "pytest-pass", Outcome::Pass),
             (Runner::Pytest, "pytest-fail", Outcome::Fail),
+            (Runner::Unittest, "unittest-pass", Outcome::Pass),
+            (Runner::Unittest, "unittest-fail", Outcome::Fail),
             (Runner::Cargo, "cargo-pass", Outcome::Pass),
             (Runner::Cargo, "cargo-fail", Outcome::Fail),
             (Runner::Cargo, "cargo-rtk-pass", Outcome::Pass),

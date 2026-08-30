@@ -1,0 +1,13 @@
+..F....
+======================================================================
+FAIL: test_parse (tests.test_app.AppTest.test_parse)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "tests/test_app.py", line 9, in test_parse
+    self.assertEqual(parse('1'), 2)
+AssertionError: 1 != 2
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.011s
+
+FAILED (failures=1)
