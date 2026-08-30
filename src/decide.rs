@@ -17,6 +17,11 @@ pub enum Verdict {
         rule: &'static str,
     },
     Overridden,
+    /// `stop_hook_active` retry after new runs/edits that still leave the claim unverified.
+    Softened {
+        rule: &'static str,
+        reason: String,
+    },
 }
 
 /// Trailing run of `block` decisions for `rule`; any other decision ends the run.
@@ -46,12 +51,40 @@ pub fn has_unconsumed_override(lines: &[Line]) -> bool {
     false
 }
 
-pub fn verdict(lines: &[Line], blocks: Vec<Block>, cap: bool) -> Verdict {
+/// True when the most recent decision was a block for `rule` and the agent has recorded a run or
+/// edit since — it retried and did something, even if the ledger still cannot verify the claim.
+pub fn retried_with_activity(lines: &[Line], rule: &str) -> bool {
+    let mut activity = false;
+    for l in lines.iter().rev() {
+        match l {
+            Line::Run { .. } | Line::Edit { .. } => activity = true,
+            Line::Decision {
+                decision, rule: r, ..
+            } => return decision == "block" && r == rule && activity,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// `retry` is the harness's `stop_hook_active`: a Stop re-evaluated after an earlier block this
+/// turn. A retry that shows new activity is softened to a warning instead of a second block; a
+/// bare re-claim with nothing new in the ledger is blocked again (up to the cap).
+pub fn verdict(lines: &[Line], blocks: Vec<Block>, cap: bool, retry: bool) -> Verdict {
     let Some(b) = blocks.into_iter().next() else {
         return Verdict::Allow;
     };
     if has_unconsumed_override(lines) {
         return Verdict::Overridden;
+    }
+    if retry && retried_with_activity(lines, b.rule) {
+        return Verdict::Softened {
+            rule: b.rule,
+            reason: format!(
+                "[provalot] Retried with new activity, but the ledger still cannot verify the claim. Allowing this once; check `provalot report`. Original reason: {}",
+                b.reason.trim_start_matches("[provalot] ")
+            ),
+        };
     }
     let n = consecutive_blocks(lines, b.rule);
     if cap && n >= MAX_CONSECUTIVE {
@@ -109,31 +142,75 @@ mod tests {
     }
 
     #[test]
-    fn caps_after_three_and_honours_override() {
-        let three = vec![dec("block", "R1.tests-claimed-not-run"); 3];
-        assert!(matches!(verdict(&three, block(), true), Verdict::Capped { .. }));
+    fn retry_with_activity_is_softened_but_a_bare_retry_is_not() {
+        let run = Line::Run {
+            ts: 2,
+            agent_id: None,
+            tool: "Bash".into(),
+            command: "ls".into(),
+            runner: "other".into(),
+            outcome: "unknown".into(),
+            stdout_hash: String::new(),
+            stderr_hash: String::new(),
+            is_error: false,
+            interrupted: false,
+        };
+        let blocked = vec![dec("block", "R1.tests-claimed-not-run")];
         assert!(
             matches!(
-                verdict(&three, block(), false),
+                verdict(&blocked, block(), true, true),
+                Verdict::Block { consecutive: 2, .. }
+            ),
+            "bare retry blocks"
+        );
+        let active = vec![dec("block", "R1.tests-claimed-not-run"), run.clone()];
+        assert!(matches!(
+            verdict(&active, block(), true, true),
+            Verdict::Softened { .. }
+        ));
+        assert!(
+            matches!(verdict(&active, block(), true, false), Verdict::Block { .. }),
+            "not a retry"
+        );
+        let other_rule = vec![dec("block", "R2.edit-claimed-no-change"), run];
+        assert!(matches!(
+            verdict(&other_rule, block(), true, true),
+            Verdict::Block { consecutive: 1, .. }
+        ));
+    }
+
+    #[test]
+    fn caps_after_three_and_honours_override() {
+        let three = vec![dec("block", "R1.tests-claimed-not-run"); 3];
+        assert!(matches!(
+            verdict(&three, block(), true, false),
+            Verdict::Capped { .. }
+        ));
+        assert!(
+            matches!(
+                verdict(&three, block(), false, false),
                 Verdict::Block { consecutive: 4, .. }
             ),
             "no cap for PreToolUse denies"
         );
         let two = vec![dec("block", "R1.tests-claimed-not-run"); 2];
         assert!(matches!(
-            verdict(&two, block(), true),
+            verdict(&two, block(), true, false),
             Verdict::Block { consecutive: 3, .. }
         ));
         let overridden = vec![dec("block", "R1.tests-claimed-not-run"), Line::Override { ts: 9 }];
-        assert!(matches!(verdict(&overridden, block(), true), Verdict::Overridden));
+        assert!(matches!(
+            verdict(&overridden, block(), true, false),
+            Verdict::Overridden
+        ));
         let consumed = vec![
             Line::Override { ts: 9 },
             dec("override", "R1.tests-claimed-not-run"),
         ];
         assert!(matches!(
-            verdict(&consumed, block(), true),
+            verdict(&consumed, block(), true, false),
             Verdict::Block { consecutive: 1, .. }
         ));
-        assert!(matches!(verdict(&[], vec![], true), Verdict::Allow));
+        assert!(matches!(verdict(&[], vec![], true, false), Verdict::Allow));
     }
 }

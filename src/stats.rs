@@ -5,7 +5,7 @@ use crate::ledger::{self, Line};
 
 pub fn render(root: &Path) -> String {
     let sessions = ledger::all_sessions(root);
-    let (mut claims, mut blocks, mut allows, mut capped, mut overrides) = (0, 0, 0, 0, 0);
+    let (mut claims, mut blocks, mut allows, mut capped, mut overrides, mut softened) = (0, 0, 0, 0, 0, 0);
     let mut by_rule: BTreeMap<String, u32> = BTreeMap::new();
     for s in &sessions {
         for l in ledger::read(root, s) {
@@ -19,6 +19,7 @@ pub fn render(root: &Path) -> String {
                     "allow" => allows += 1,
                     "capped" => capped += 1,
                     "override" => overrides += 1,
+                    "softened" => softened += 1,
                     _ => {}
                 },
                 _ => {}
@@ -26,7 +27,7 @@ pub fn render(root: &Path) -> String {
         }
     }
     let mut out = format!(
-        "sessions: {}\nclaims: {claims}\nblocks: {blocks}\nallows: {allows}\ncapped: {capped}\noverrides: {overrides}\n",
+        "sessions: {}\nclaims: {claims}\nblocks: {blocks}\nallows: {allows}\ncapped: {capped}\noverrides: {overrides}\nsoftened: {softened}\n",
         sessions.len()
     );
     out.push_str("blocks by rule:\n");

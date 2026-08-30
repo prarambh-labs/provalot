@@ -1,0 +1,1 @@
+{"session_id":"sess-lying","transcript_path":"/tmp/transcript.jsonl","cwd":"__CWD__","permission_mode":"default","hook_event_name":"PostToolUse","tool_name":"Bash","tool_use_id":"toolu_p9","tool_input":{"command":"pytest -q"},"tool_response":{"stdout":"....\n4 passed in 0.12s\n","stderr":"","interrupted":false,"is_error":false}}

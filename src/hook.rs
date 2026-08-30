@@ -39,8 +39,10 @@ pub fn run(harness: Harness, stdin_json: &str) -> Result<HookOutcome, String> {
             NONE
         }
         Event::Stop {
-            common, last_message, ..
-        } => on_stop(&root, &common, &last_message)?,
+            common,
+            last_message,
+            stop_hook_active,
+        } => on_stop(&root, &common, &last_message, stop_hook_active)?,
         Event::PreCompact { common, .. } => {
             on_pre_compact(&root, &common)?;
             NONE
@@ -175,7 +177,7 @@ fn on_pre_tool(
         }
     }
     if !blocks.is_empty() {
-        let out = record_and_answer(root, common, &lines, blocks, output::pre_tool_deny, false)?;
+        let out = record_and_answer(root, common, &lines, blocks, output::pre_tool_deny, false, false)?;
         if out.stdout.is_some() {
             return Ok(out);
         }
@@ -205,7 +207,7 @@ fn on_pre_tool(
     Ok(NONE)
 }
 
-fn on_stop(root: &Path, common: &Common, last_message: &str) -> Result<HookOutcome, String> {
+fn on_stop(root: &Path, common: &Common, last_message: &str, retry: bool) -> Result<HookOutcome, String> {
     let lines = scoped(ledger::read(root, &common.session_id), &common.agent_id);
     let found = claims::extract(last_message, root);
     for c in &found {
@@ -229,7 +231,7 @@ fn on_stop(root: &Path, common: &Common, last_message: &str) -> Result<HookOutco
     if !rules::disabled(rules::r2_edit::ID) {
         blocks.extend(rules::r2_edit::evaluate(&lines, &found));
     }
-    let out = record_and_answer(root, common, &lines, blocks, output::stop_block, true)?;
+    let out = record_and_answer(root, common, &lines, blocks, output::stop_block, true, retry)?;
     let _ = crate::report::write(root, &common.session_id);
     Ok(out)
 }
@@ -253,9 +255,10 @@ fn record_and_answer(
     blocks: Vec<rules::Block>,
     render: fn(&str) -> String,
     cap: bool,
+    retry: bool,
 ) -> Result<HookOutcome, String> {
     let line;
-    let out = match decide::verdict(lines, blocks, cap) {
+    let out = match decide::verdict(lines, blocks, cap, retry) {
         Verdict::Allow => {
             line = decision_line(common, "allow", "", "", 0);
             NONE
@@ -283,6 +286,12 @@ fn record_and_answer(
         Verdict::Overridden => {
             line = decision_line(common, "override", "", "human override consumed", 0);
             NONE
+        }
+        Verdict::Softened { rule, reason } => {
+            line = decision_line(common, "softened", rule, &reason, 0);
+            HookOutcome {
+                stdout: Some(output::system_message(&reason)),
+            }
         }
     };
     ledger::append(root, &common.session_id, &line)?;
