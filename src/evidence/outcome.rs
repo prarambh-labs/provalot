@@ -30,7 +30,8 @@ macro_rules! re {
 re!(PYTEST_FAIL, r"(?m)\b(\d+) (?:failed|errors?)\b");
 re!(PYTEST_PASS, r"(?m)\b(\d+) passed\b");
 re!(UNITTEST_FAIL, r"(?m)^FAILED\b");
-re!(UNITTEST_PASS, r"(?m)^Ran (\d+) tests?[^\n]*\n+OK\b");
+// A line-anchored `OK` is unittest's verdict line; agents often pipe through `tail -1`, leaving only it.
+re!(UNITTEST_PASS, r"(?m)^OK\b");
 re!(CARGO_FAIL, r"(?m)^test result: FAILED");
 re!(CARGO_PASS, r"(?m)^test result: ok");
 re!(
@@ -164,6 +165,33 @@ mod tests {
         for (runner, name, want) in cases {
             assert_eq!(infer(runner, &fx(name), "", false, false), want, "{name}");
         }
+    }
+
+    #[test]
+    fn unittest_accepts_a_bare_ok_line_but_not_a_failed_tail() {
+        assert_eq!(
+            infer(Runner::Unittest, "OK\n", "", false, false),
+            Outcome::Pass,
+            "tail -1 of a passing run"
+        );
+        assert_eq!(
+            infer(Runner::Unittest, "", "OK (skipped=1)\n", false, false),
+            Outcome::Pass
+        );
+        assert_eq!(
+            infer(Runner::Unittest, "FAILED (failures=1)\n", "", false, false),
+            Outcome::Fail
+        );
+        assert_eq!(
+            infer(Runner::Unittest, "some OK-ish text\n", "", false, false),
+            Outcome::Unknown,
+            "OK must start the line"
+        );
+        assert_eq!(
+            infer(Runner::Unittest, "OK\n", "", true, false),
+            Outcome::Fail,
+            "non-zero exit wins"
+        );
     }
 
     #[test]
