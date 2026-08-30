@@ -113,6 +113,44 @@ pub fn edit_paths(cwd: &Path, input: &ToolInput) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Path-like tokens a shell command names (`sed -i … src/app.py`, `cat > notes/new.md`, a
+/// `pathlib.Path('npm/install.js')` inside a heredoc). Bash gives no structured file list, so this
+/// is how a Bash-made edit earns an `edit` line: hash before, hash after, record when changed.
+/// Kept: existing files, or not-yet-existing files whose parent directory exists. Capped at 32.
+pub fn command_paths(cwd: &Path, command: &str) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    for tok in command.split(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '.' | '/' | '-' | '~'))) {
+        let t = tok.trim_matches(|c: char| matches!(c, '.' | '-'));
+        let looks_like_path = t.contains('/')
+            || t.rsplit_once('.').is_some_and(|(stem, ext)| {
+                !stem.is_empty()
+                    && !ext.is_empty()
+                    && ext.chars().all(|c| c.is_ascii_alphanumeric())
+                    && !ext.chars().all(|c| c.is_ascii_digit())
+            });
+        if t.is_empty() || t.starts_with('~') || t.ends_with('/') || !looks_like_path || tok.contains("://") {
+            continue;
+        }
+        let p = if Path::new(t).is_absolute() {
+            PathBuf::from(t)
+        } else {
+            cwd.join(t)
+        };
+        let written_to = t.contains('/')
+            || [format!("> {t}"), format!(">{t}"), format!("-o {t}")]
+                .iter()
+                .any(|w| command.contains(w));
+        let keep = p.is_file() || (!p.exists() && written_to && p.parent().is_some_and(|d| d.is_dir()));
+        if keep && !out.contains(&p) {
+            out.push(p);
+            if out.len() == 32 {
+                break;
+            }
+        }
+    }
+    out
+}
+
 fn on_pre_tool(
     root: &Path,
     common: &Common,
@@ -142,8 +180,15 @@ fn on_pre_tool(
             return Ok(out);
         }
     }
-    if tool.is_edit() {
-        for p in edit_paths(&common.cwd, input) {
+    let touched = if *tool == Tool::Bash {
+        command_paths(&common.cwd, &input.command.clone().unwrap_or_default())
+    } else if tool.is_edit() {
+        edit_paths(&common.cwd, input)
+    } else {
+        Vec::new()
+    };
+    {
+        for p in touched {
             ledger::append(
                 root,
                 &common.session_id,
@@ -244,7 +289,9 @@ fn record_and_answer(
     Ok(out)
 }
 
-fn pending_hash(lines: &[Line], tool_use_id: &Option<String>, path: &str) -> Option<String> {
+/// The `edit_pending` entry for `path` (matching `tool_use_id` when given): outer `None` means no
+/// entry was recorded; inner `None` means the file did not exist beforehand.
+fn pending_before(lines: &[Line], tool_use_id: &Option<String>, path: &str) -> Option<Option<String>> {
     lines.iter().rev().find_map(|l| match l {
         Line::EditPending {
             tool_use_id: id,
@@ -253,7 +300,11 @@ fn pending_hash(lines: &[Line], tool_use_id: &Option<String>, path: &str) -> Opt
             ..
         } if p == path && (tool_use_id.is_none() || id == tool_use_id) => Some(hash_before.clone()),
         _ => None,
-    })?
+    })
+}
+
+fn pending_hash(lines: &[Line], tool_use_id: &Option<String>, path: &str) -> Option<String> {
+    pending_before(lines, tool_use_id, path)?
 }
 
 fn on_post_tool(
@@ -291,6 +342,36 @@ fn on_post_tool(
             },
         )?;
     }
+    if *tool == Tool::Bash {
+        let command = input.command.clone().unwrap_or_default();
+        let paths = command_paths(&common.cwd, &command);
+        if !paths.is_empty() {
+            let lines = ledger::read(root, &common.session_id);
+            for p in paths {
+                let path = repo::rel(root, &p);
+                let Some(hash_before) = pending_before(&lines, &tool_use_id, &path) else {
+                    continue;
+                };
+                let hash_after = repo::sha256_file(&p);
+                if hash_before == hash_after {
+                    continue;
+                }
+                ledger::append(
+                    root,
+                    &common.session_id,
+                    &Line::Edit {
+                        ts: ledger::now_ms(),
+                        agent_id: common.agent_id.clone(),
+                        tool: tool.as_str(),
+                        path,
+                        hash_before,
+                        hash_after,
+                        changed: true,
+                    },
+                )?;
+            }
+        }
+    }
     if tool.is_edit() {
         let lines = ledger::read(root, &common.session_id);
         for p in edit_paths(&common.cwd, input) {
@@ -314,4 +395,32 @@ fn on_post_tool(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_paths_keeps_named_files_and_new_files_with_a_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path();
+        std::fs::create_dir_all(cwd.join("src")).unwrap();
+        std::fs::create_dir_all(cwd.join("notes")).unwrap();
+        std::fs::write(cwd.join("src/app.py"), "x").unwrap();
+        let cmd = "FOO=1 sed -i '' 's/1/2/' src/app.py && cat > notes/new.md <<'EOF'\nhi\nEOF\n\
+                   python3 - <<'PY'\nimport pathlib; pathlib.Path('src/app.py').write_text('y')\nPY\n\
+                   curl https://example.com/x.tar.gz -o /nonexistent-dir/x.tar.gz; ls src/; echo 1.23 v2.0 ./src/app.py; echo hi > new.md";
+        let got = command_paths(cwd, cmd);
+        assert_eq!(
+            got,
+            vec![
+                cwd.join("src/app.py"),
+                cwd.join("notes/new.md"),
+                cwd.join("new.md")
+            ],
+            "{got:?}"
+        );
+        assert!(command_paths(cwd, "cargo test --workspace && git commit -m 'wip'").is_empty());
+    }
 }

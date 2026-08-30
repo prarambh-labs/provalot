@@ -52,7 +52,7 @@ Project hooks load only after you trust them: in Codex run `/hooks`, review `pro
 
 ## What it records
 
-`.provalot/sessions/<id>.jsonl`: commands, runner, outcome, file paths and hashes, claims, decisions. Never file contents, never command output (hashes only). `.provalot/` is git-ignored by `init`. No telemetry.
+`.provalot/sessions/<id>.jsonl`: commands, runner, outcome, file paths and hashes, claims, decisions. Edits made through Bash (`sed -i`, heredocs, scripts) count too: every path named in the command is hashed before and after, and a change is recorded as an edit. Never file contents, never command output (hashes only). `.provalot/` is git-ignored by `init`. No telemetry.
 
 ## Limits, stated plainly
 

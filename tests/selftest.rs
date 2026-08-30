@@ -1,12 +1,12 @@
 mod common;
 
 #[test]
-fn selftest_passes_and_reports_seven_cases() {
+fn selftest_passes_and_reports_eight_cases() {
     let dir = tempfile::tempdir().unwrap();
     let out = common::run(&["selftest"], "", dir.path(), &[]);
     let text = common::stdout(&out);
     assert!(out.status.success(), "{text}");
-    assert_eq!(text.matches("PASS ").count(), 7, "{text}");
+    assert_eq!(text.matches("PASS ").count(), 8, "{text}");
 }
 
 #[test]

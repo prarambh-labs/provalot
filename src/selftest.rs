@@ -11,6 +11,8 @@ const PRE_EDIT: &str = include_str!("../fixtures/hooks/claude/pre-edit.json");
 const POST_EDIT: &str = include_str!("../fixtures/hooks/claude/post-edit.json");
 const PRE_FORCE_PUSH: &str = include_str!("../fixtures/hooks/claude/pre-bash-force-push.json");
 const PRE_COMMIT: &str = include_str!("../fixtures/hooks/claude/pre-bash-commit.json");
+const PRE_BASH_SED: &str = include_str!("../fixtures/hooks/claude/pre-bash-sed.json");
+const POST_BASH_SED: &str = include_str!("../fixtures/hooks/claude/post-bash-sed.json");
 const PRE_WRITE: &str = include_str!("../fixtures/hooks/claude/pre-write.json");
 const POLICY: &str = include_str!("../fixtures/policy/CLAUDE.md");
 
@@ -134,6 +136,18 @@ pub fn run() -> Vec<(String, bool, String)> {
         &mut r,
         fire(&d, PRE_WRITE),
         Expect::Deny,
+    );
+
+    let d = case_dir(&base, 8);
+    std::fs::create_dir_all(d.join("notes")).expect("notes dir");
+    let _ = fire(&d, PRE_BASH_SED);
+    std::fs::write(d.join("src/app.py"), "print(2)\n").expect("edit");
+    let _ = fire(&d, POST_BASH_SED);
+    check(
+        "R2 allows the edit claim after a change made through Bash",
+        &mut r,
+        fire(&d, STOP_EDIT_CLAIM),
+        Expect::Allow,
     );
 
     let _ = std::fs::remove_dir_all(&base);
