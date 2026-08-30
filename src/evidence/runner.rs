@@ -52,25 +52,51 @@ impl Runner {
 }
 
 /// Split on `&&`, `||`, `|`, `;` and newlines. Quotes are not parsed; good enough for runner detection.
+/// Heredoc bodies (`<<EOF` … `EOF`, also `<<'EOF'`, `<<"EOF"`, `<<-EOF`) are data, not commands, and are
+/// dropped so a Python patch mentioning `tests/test_x.py` is never mistaken for a test run.
 fn segments(command: &str) -> Vec<String> {
     let mut out = Vec::new();
-    let mut cur = String::new();
-    let mut chars = command.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '&' | '|' if chars.peek() == Some(&c) => {
-                chars.next();
-                out.push(std::mem::take(&mut cur));
+    let mut terminator: Option<String> = None;
+    for line in command.split('\n') {
+        if let Some(t) = &terminator {
+            if line.trim() == t {
+                terminator = None;
             }
-            '|' | ';' | '\n' => out.push(std::mem::take(&mut cur)),
-            _ => cur.push(c),
+            continue;
+        }
+        let mut cur = String::new();
+        let mut chars = line.chars().peekable();
+        while let Some(c) = chars.next() {
+            match c {
+                '&' | '|' if chars.peek() == Some(&c) => {
+                    chars.next();
+                    out.push(std::mem::take(&mut cur));
+                }
+                '|' | ';' => out.push(std::mem::take(&mut cur)),
+                _ => cur.push(c),
+            }
+        }
+        out.push(cur);
+        if let Some(word) = heredoc_terminator(line) {
+            terminator = Some(word);
         }
     }
-    out.push(cur);
     out.into_iter()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
+}
+
+/// The terminator word of a `<<WORD` / `<<-'WORD'` heredoc introduced on this line, if any.
+fn heredoc_terminator(line: &str) -> Option<String> {
+    let i = line.find("<<")?;
+    let rest = line[i + 2..].trim_start_matches('-').trim_start();
+    let word: String = rest
+        .trim_start_matches(['\'', '"'])
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    (!word.is_empty()).then_some(word)
 }
 
 /// Drop leading wrappers (`rtk`, `time`, `nice`, `timeout <n>`, `sudo`, `env` and their
@@ -180,17 +206,28 @@ fn classify_tokens(t: &[String]) -> Runner {
             if rest
                 .iter()
                 .find(|a| !a.starts_with('-'))
-                .is_some_and(|a| test_named(a)) =>
+                .is_some_and(|a| script_like(a)) =>
         {
             Runner::Script
         }
-        _ if test_named(&first) => Runner::Script,
+        _ if script_like(t.first().map(String::as_str).unwrap_or("")) => Runner::Script,
         _ => Runner::Other,
     }
 }
 
-/// `test.sh`, `tools/test_claude_service.sh`, `run_tests.py`, `scripts/run-tests`, `tests/smoke_test`.
-/// The executable itself must be test-named; a file argument (`cat test.log`) does not count.
+/// A test-named executable: `test.sh`, `tools/test_claude_service.sh`, `run_tests.py`, `scripts/run-tests`.
+/// It must look like a script (a path, or a script extension), so `seen_test = True` or `p="tests/x.py"`
+/// inside program text never counts; and it is the executable, not an argument (`cat test.log`).
+fn script_like(token: &str) -> bool {
+    let ext = token.rsplit('.').next().unwrap_or("");
+    let scripty = token.contains('/')
+        || matches!(
+            ext,
+            "sh" | "bash" | "zsh" | "py" | "js" | "mjs" | "ts" | "rb" | "pl" | "exe"
+        );
+    !token.contains('=') && !token.contains('"') && !token.contains('\'') && scripty && test_named(token)
+}
+
 fn test_named(token: &str) -> bool {
     let base = token.rsplit('/').next().unwrap_or(token);
     let stem = base.split('.').next().unwrap_or(base).to_ascii_lowercase();
@@ -198,15 +235,18 @@ fn test_named(token: &str) -> bool {
         .any(|w| matches!(w, "test" | "tests" | "selftest" | "check"))
 }
 
-/// First recognized test runner in any segment of the command line, else `Other`.
+/// The most specific runner named anywhere on the command line: a known runner beats `Script`
+/// (`bash tools/test.sh && cargo test` is a cargo run), and anything beats `Other`.
 pub fn classify(command: &str) -> Runner {
+    let mut best = Runner::Other;
     for seg in segments(command) {
-        let r = classify_tokens(&strip_wrappers(&split_tokens(&seg)));
-        if r != Runner::Other {
-            return r;
+        match classify_tokens(&strip_wrappers(&split_tokens(&seg))) {
+            Runner::Other => {}
+            Runner::Script => best = Runner::Script,
+            r => return r,
         }
     }
-    Runner::Other
+    best
 }
 
 #[cfg(test)]
@@ -255,6 +295,13 @@ mod tests {
             ("bundle exec rspec", Runner::Other),
             ("rspec spec/", Runner::Script),
             ("cat test.log", Runner::Other),
+            ("cd ~/src/x && bash tools/test_claude_service.sh 2>&1 | tail -n 20", Runner::Script),
+            ("bash tools/test_x.sh && cargo test", Runner::Cargo),
+            ("python3 - <<'EOF'\np=\"tests/test_evidence_scan.py\"; s=open(p).read()\nseen_test = True\nEOF", Runner::Other),
+            ("python3 - <<'EOF'\nx=1\nEOF\npytest -q", Runner::Pytest),
+            ("cat > notes.md <<EOF\nrun tests/test_all.sh\nEOF", Runner::Other),
+            ("seen_test = True", Runner::Other),
+            ("want=('Goal check-in:', 'x')", Runner::Other),
             ("vim tests/test_foo.py", Runner::Other),
             ("make build", Runner::Other),
             ("ls -la", Runner::Other),
