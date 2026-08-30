@@ -1,0 +1,8 @@
+[1/6] service starts ... PASS
+[2/6] health endpoint ... PASS
+[3/6] stop is clean ... PASS
+[4/6] restart keeps state ... PASS
+[5/6] log rotation ... PASS
+[6/6] port freed ... PASS
+6/6 PASS
+ALL PASS

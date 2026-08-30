@@ -9,6 +9,8 @@ pub enum Runner {
     GoTest,
     Xcodebuild,
     SwiftTest,
+    /// A project's own test entry point: a test-named script or a build tool's `test` task.
+    Script,
     Other,
 }
 
@@ -24,6 +26,7 @@ impl Runner {
             Runner::GoTest => "go-test",
             Runner::Xcodebuild => "xcodebuild",
             Runner::SwiftTest => "swift-test",
+            Runner::Script => "script",
             Runner::Other => "other",
         }
     }
@@ -39,6 +42,7 @@ impl Runner {
             "go-test" => Runner::GoTest,
             "xcodebuild" => Runner::Xcodebuild,
             "swift-test" => Runner::SwiftTest,
+            "script" => Runner::Script,
             _ => Runner::Other,
         }
     }
@@ -159,8 +163,34 @@ fn classify_tokens(t: &[String]) -> Runner {
             Runner::Xcodebuild
         }
         "swift" if rest.first() == Some(&"test") => Runner::SwiftTest,
+        "make" | "just" | "gradle" | "gradlew" | "mvn" | "dotnet" | "mix" | "sbt" | "meson"
+            if rest
+                .first()
+                .is_some_and(|a| a.starts_with("test") || *a == "check") =>
+        {
+            Runner::Script
+        }
+        "tox" | "nox" | "rspec" | "phpunit" | "ctest" | "busted" | "bats" => Runner::Script,
+        "bash" | "sh" | "zsh" | "python" | "python3" | "node" | "ruby" | "perl" | "bun" | "deno"
+            if rest
+                .iter()
+                .find(|a| !a.starts_with('-'))
+                .is_some_and(|a| test_named(a)) =>
+        {
+            Runner::Script
+        }
+        _ if test_named(&first) => Runner::Script,
         _ => Runner::Other,
     }
+}
+
+/// `test.sh`, `tools/test_claude_service.sh`, `run_tests.py`, `scripts/run-tests`, `tests/smoke_test`.
+/// The executable itself must be test-named; a file argument (`cat test.log`) does not count.
+fn test_named(token: &str) -> bool {
+    let base = token.rsplit('/').next().unwrap_or(token);
+    let stem = base.split('.').next().unwrap_or(base).to_ascii_lowercase();
+    stem.split(['_', '-'])
+        .any(|w| matches!(w, "test" | "tests" | "selftest" | "check"))
 }
 
 /// First recognized test runner in any segment of the command line, else `Other`.
@@ -201,6 +231,20 @@ mod tests {
                 Runner::Xcodebuild,
             ),
             ("swift test", Runner::SwiftTest),
+            ("tools/test_claude_service.sh", Runner::Script),
+            ("bash tools/test_claude_service.sh --verbose", Runner::Script),
+            ("./test.sh", Runner::Script),
+            ("python3 tests/run_tests.py", Runner::Script),
+            ("scripts/run-tests", Runner::Script),
+            ("make test", Runner::Script),
+            ("just test-unit", Runner::Script),
+            ("./gradlew test", Runner::Script),
+            ("dotnet test", Runner::Script),
+            ("bundle exec rspec", Runner::Other),
+            ("rspec spec/", Runner::Script),
+            ("cat test.log", Runner::Other),
+            ("vim tests/test_foo.py", Runner::Other),
+            ("make build", Runner::Other),
             ("ls -la", Runner::Other),
             ("git commit -m 'x'", Runner::Other),
             ("cargo build", Runner::Other),
@@ -240,6 +284,7 @@ mod tests {
             Runner::GoTest,
             Runner::Xcodebuild,
             Runner::SwiftTest,
+            Runner::Script,
             Runner::Other,
         ] {
             assert_eq!(Runner::parse(r.as_str()), r);

@@ -53,6 +53,14 @@ re!(XC_FAIL, r"\*\* TEST FAILED \*\*");
 re!(XC_PASS, r"\*\* TEST SUCCEEDED \*\*");
 re!(SWIFT_FAIL, r"(?m)with (\d+) failures?");
 re!(SWIFT_PASS, r"(?m)with 0 failures");
+re!(
+    SCRIPT_FAIL_WORD,
+    r"(?m)^[^\n]*\b(?:FAIL|FAILED|FAILURE|FAILURES|ERROR)\b"
+);
+re!(
+    SCRIPT_FAIL_COUNT,
+    r"(?im)\b(\d+)\s+(?:failed|failures?|errors?)\b"
+);
 
 /// True when any capture group 1 parses to a number greater than zero (or the regex has no number).
 fn nonzero(re: &Regex, text: &str) -> bool {
@@ -93,6 +101,12 @@ pub fn infer(runner: Runner, stdout: &str, stderr: &str, is_error: bool, interru
         Runner::GoTest => (GO_FAIL.is_match(&text), GO_PASS.is_match(&text)),
         Runner::Xcodebuild => (XC_FAIL.is_match(&text), XC_PASS.is_match(&text)),
         Runner::SwiftTest => (nonzero(&SWIFT_FAIL, &text), SWIFT_PASS.is_match(&text)),
+        // A project's own test script carries no known summary line: the exit status (is_error)
+        // is the verdict, and an explicit FAIL marker or non-zero failure count overrides it.
+        Runner::Script => (
+            SCRIPT_FAIL_WORD.is_match(&text) || nonzero(&SCRIPT_FAIL_COUNT, &text),
+            !is_error,
+        ),
         Runner::Other => (false, false),
     };
     if fail || is_error {
@@ -139,10 +153,39 @@ mod tests {
             (Runner::GoTest, "go-fail", Outcome::Fail),
             (Runner::Xcodebuild, "xcodebuild-pass", Outcome::Pass),
             (Runner::Xcodebuild, "xcodebuild-fail", Outcome::Fail),
+            (Runner::Script, "script-pass", Outcome::Pass),
+            (Runner::Script, "script-fail", Outcome::Fail),
         ];
         for (runner, name, want) in cases {
             assert_eq!(infer(runner, &fx(name), "", false, false), want, "{name}");
         }
+    }
+
+    #[test]
+    fn script_runner_is_judged_by_exit_status_and_fail_markers() {
+        assert_eq!(
+            infer(Runner::Script, "", "", false, false),
+            Outcome::Pass,
+            "silent success is a pass"
+        );
+        assert_eq!(
+            infer(Runner::Script, "6/6 PASS\nALL PASS\n", "", true, false),
+            Outcome::Fail,
+            "non-zero exit wins"
+        );
+        assert_eq!(
+            infer(Runner::Script, "ok\n0 failed\n", "", false, false),
+            Outcome::Pass,
+            "zero count is not a failure"
+        );
+        assert_eq!(
+            infer(Runner::Script, "PASS a\nFAIL b\n", "", false, false),
+            Outcome::Fail
+        );
+        assert_eq!(
+            infer(Runner::Script, "2 failures\n", "", false, false),
+            Outcome::Fail
+        );
     }
 
     #[test]

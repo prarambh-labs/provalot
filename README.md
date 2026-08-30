@@ -56,4 +56,4 @@ Project hooks load only after you trust them: in Codex run `/hooks`, review `pro
 
 ## Limits, stated plainly
 
-Hooks fail open on timeout in both harnesses; provalot stays under 50 ms and never blocks more than three times in a row. Claims are matched by patterns and can miss paraphrases. Test outcomes are inferred from runner output (pytest, cargo, jest, vitest, node:test, go, xcodebuild, swift) because neither harness passes exit codes to hooks.
+Hooks fail open on timeout in both harnesses; provalot stays under 50 ms and never blocks more than three times in a row. Claims are matched by patterns and can miss paraphrases. Test outcomes are inferred from runner output (pytest, cargo, jest, vitest, node:test, go, xcodebuild, swift) because neither harness passes exit codes to hooks. A project's own test entry point counts too — a test-named script (`tools/test_service.sh`, `./run_tests.py`), `make test`, `./gradlew test`, `rspec`, `tox`, … — judged by its exit status plus any `FAIL`/`N failed` marker in its output.

@@ -1,0 +1,4 @@
+[1/6] service starts ... PASS
+[2/6] health endpoint ... FAIL (expected 200, got 503)
+[3/6] stop is clean ... PASS
+5/6 PASS, 1 FAIL
