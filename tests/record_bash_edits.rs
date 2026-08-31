@@ -85,3 +85,37 @@ fn an_edit_and_a_test_run_in_one_command_record_the_edit_first() {
         "the run in the same command counts"
     );
 }
+
+#[test]
+fn a_write_outside_the_repo_is_not_a_repo_edit() {
+    let dir = setup();
+    let scratch = tempfile::tempdir().unwrap();
+    let out = scratch.path().join("b.txt");
+    std::fs::write(&out, "x").unwrap();
+    let payload = |event: &str, response: &str| {
+        format!(
+            r#"{{"session_id":"sess-1","transcript_path":"/tmp/t.jsonl","cwd":"{cwd}","hook_event_name":"{event}","tool_name":"Bash","tool_use_id":"toolu_o1","tool_input":{{"command":"echo hi > {out}"}}{response}}}"#,
+            cwd = dir.path().display(),
+            out = out.display(),
+        )
+    };
+    common::run(&["hook", "claude"], &payload("PreToolUse", ""), dir.path(), &[]);
+    std::fs::write(&out, "hi\n").unwrap();
+    common::run(
+        &["hook", "claude"],
+        &payload(
+            "PostToolUse",
+            r#","tool_response":{"stdout":"","stderr":"","interrupted":false,"is_error":false}"#,
+        ),
+        dir.path(),
+        &[],
+    );
+    let lines = common::ledger_lines(dir.path(), "sess-1");
+    assert!(
+        lines
+            .iter()
+            .all(|l| l["kind"] != "edit" && l["kind"] != "edit_pending"),
+        "{lines:?}"
+    );
+    assert!(lines.iter().any(|l| l["kind"] == "run"));
+}

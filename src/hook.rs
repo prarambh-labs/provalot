@@ -188,7 +188,11 @@ fn on_pre_tool(
         }
     }
     let touched = if *tool == Tool::Bash {
-        command_paths(&common.cwd, &input.command.clone().unwrap_or_default())
+        // A shell write outside the repo (scratch under /tmp, another checkout) is not a repo edit:
+        // it must neither invalidate test evidence nor count for R2.
+        let mut v = command_paths(&common.cwd, &input.command.clone().unwrap_or_default());
+        v.retain(|p| !repo::rel(root, p).starts_with('/'));
+        v
     } else if tool.is_edit() {
         edit_paths(&common.cwd, input)
     } else {
@@ -333,7 +337,8 @@ fn on_post_tool(
     // precedes the test, so a `sed … && cargo test` must not read as an edit after a passing run.
     if *tool == Tool::Bash {
         let command = input.command.clone().unwrap_or_default();
-        let paths = command_paths(&common.cwd, &command);
+        let mut paths = command_paths(&common.cwd, &command);
+        paths.retain(|p| !repo::rel(root, p).starts_with('/'));
         if !paths.is_empty() {
             let lines = ledger::read(root, &common.session_id);
             for p in paths {

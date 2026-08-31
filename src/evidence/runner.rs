@@ -210,6 +210,9 @@ fn classify_tokens(t: &[String]) -> Runner {
         {
             Runner::Script
         }
+        // `for t in tests/test_a.py tests/test_b.py; do python3 $t; done` — the loop list names the
+        // test scripts; the interpreter segment only ever sees `$t`.
+        "for" if t.iter().skip(2).any(|a| script_like(a)) => Runner::Script,
         _ if script_like(t.first().map(String::as_str).unwrap_or("")) => Runner::Script,
         _ => Runner::Other,
     }
