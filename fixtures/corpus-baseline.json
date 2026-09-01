@@ -1,0 +1,8 @@
+{
+  "schema": "provalot-corpus/1",
+  "fleets": 1,
+  "stops": 6325,
+  "near_misses": 39,
+  "near_miss_rate_median": 0.0062,
+  "source": "first-party dogfood, 11 repos, 2026-08-29..2026-08-31"
+}

@@ -5,15 +5,24 @@ use crate::ledger::{self, Line};
 
 pub fn render(root: &Path) -> String {
     let sessions = ledger::all_sessions(root);
-    let (mut claims, mut blocks, mut allows, mut capped, mut overrides, mut softened) = (0, 0, 0, 0, 0, 0);
+    let (mut claims, mut blocks, mut allows, mut capped, mut overrides, mut softened, mut near_misses) =
+        (0, 0, 0, 0, 0, 0, 0u32);
     let mut by_rule: BTreeMap<String, u32> = BTreeMap::new();
     for s in &sessions {
         for l in ledger::read(root, s) {
             match l {
                 Line::Claim { .. } => claims += 1,
-                Line::Decision { decision, rule, .. } => match decision.as_str() {
+                Line::Decision {
+                    decision,
+                    rule,
+                    event,
+                    ..
+                } => match decision.as_str() {
                     "block" => {
                         blocks += 1;
+                        if event != "PreToolUse" {
+                            near_misses += 1;
+                        }
                         *by_rule.entry(rule).or_default() += 1;
                     }
                     "allow" => allows += 1,
@@ -30,6 +39,13 @@ pub fn render(root: &Path) -> String {
         "sessions: {}\nclaims: {claims}\nblocks: {blocks}\nallows: {allows}\ncapped: {capped}\noverrides: {overrides}\nsoftened: {softened}\n",
         sessions.len()
     );
+    let stops = near_misses + allows + capped + overrides + softened;
+    if stops > 0 {
+        out.push_str(&format!(
+            "near-misses: {near_misses} ({:.2}% of {stops} evaluated stops)\n",
+            f64::from(near_misses) * 100.0 / f64::from(stops)
+        ));
+    }
     out.push_str("blocks by rule:\n");
     for (r, n) in by_rule {
         out.push_str(&format!("  {r}: {n}\n"));

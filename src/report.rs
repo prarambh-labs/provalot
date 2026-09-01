@@ -38,6 +38,15 @@ pub fn render(root: &Path, session: &str) -> String {
             ));
         }
     }
+    let near = lines
+        .iter()
+        .filter(|l| {
+            matches!(l, Line::Decision { decision, event, .. } if decision == "block" && event != "PreToolUse")
+        })
+        .count();
+    out.push_str(&format!(
+        "\n## Near misses\n\n{near} — unbacked claims stopped before they shipped.\n"
+    ));
     out.push_str("\n## Decisions\n\n");
     for l in &lines {
         match l {

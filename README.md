@@ -50,6 +50,12 @@ Project hooks load only after you trust them: in Codex run `/hooks`, review `pro
 
 `npm/install.js` downloads the release binary for your platform and refuses to install it unless its SHA-256 matches the digest recorded in `npm/checksums.json` (filled from the release's `*.sha256` files by `scripts/npm-checksums.sh vX.Y.Z` before `npm publish`). `PROVALOT_BINARY_URL` overrides the download URL only when paired with `PROVALOT_BINARY_SHA256`.
 
+## Near misses, not nags
+
+Every block is a near miss: an unbacked "done" that would have shipped — the failure that is unrecoverable when nobody is watching the agent. `provalot report` and `provalot stats` count them; `provalot digest` renders an anonymized fire-pattern digest for the repo.
+
+`provalot share` prints the same numbers as a de-identified blob (counts only, hashed repo id — the de-identification is architectural: the blob's type holds nothing but counters, enforced by test) plus an on-the-spot benchmark against the shared corpus. Nothing is ever transmitted by provalot; sharing means you paste the blob into the project's discussions yourself.
+
 ## What it records
 
 `.provalot/sessions/<id>.jsonl`: commands, runner, outcome, file paths and hashes, claims, decisions. Edits made through Bash (`sed -i`, heredocs, scripts) count too: every path named in the command is hashed before and after, and a change is recorded as an edit. Never file contents, never command output (hashes only). `.provalot/` is git-ignored by `init`. No telemetry.

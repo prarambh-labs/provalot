@@ -13,4 +13,5 @@ pub mod repo;
 pub mod report;
 pub mod rules;
 pub mod selftest;
+pub mod share;
 pub mod stats;

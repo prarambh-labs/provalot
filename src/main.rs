@@ -45,6 +45,10 @@ enum Cmd {
     Report { session: Option<String> },
     /// Counts across all sessions in this repo
     Stats,
+    /// Print a de-identified stats blob and a fleet-relative benchmark (nothing is transmitted)
+    Share,
+    /// Render an anonymized near-miss and fire-pattern digest for this repo
+    Digest,
     /// Replay canned sessions; every rule must block its bad case and allow its good case
     Selftest,
 }
@@ -106,6 +110,8 @@ fn main() {
             }
         }
         Cmd::Stats => print!("{}", provalot::stats::render(&root_from_cwd())),
+        Cmd::Share => print!("{}", provalot::share::render_share(&root_from_cwd())),
+        Cmd::Digest => print!("{}", provalot::share::render_digest(&root_from_cwd())),
         Cmd::Selftest => {
             let results = provalot::selftest::run();
             let mut failed = false;
