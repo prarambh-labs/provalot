@@ -1,6 +1,6 @@
 {
   "name": "provalot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Deterministic evidence gate for coding agents (Claude Code, Codex CLI)",
   "license": "MIT",
   "repository": "github:prarambh-labs/provalot",
