@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 tag="${1:?usage: npm-checksums.sh vX.Y.Z}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-gh release download "$tag" --repo vaishach0523-P1/provalot --pattern '*.sha256' --dir "$work"
+gh release download "$tag" --repo prarambh-labs/provalot --pattern '*.sha256' --dir "$work"
 python3 - "$work" <<'PY'
 import json, os, sys
 d = sys.argv[1]

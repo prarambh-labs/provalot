@@ -28,7 +28,7 @@ function assetName(t) {
 }
 
 function assetUrl(t) {
-  return process.env.PROVALOT_BINARY_URL || `https://github.com/vaishach0523-P1/provalot/releases/download/v${version}/${assetName(t)}`;
+  return process.env.PROVALOT_BINARY_URL || `https://github.com/prarambh-labs/provalot/releases/download/v${version}/${assetName(t)}`;
 }
 
 /**

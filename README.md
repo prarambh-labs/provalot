@@ -12,7 +12,7 @@ npx provalot init        # or: cargo install provalot && provalot init
 
 | Rule | Fires when | Blocked with |
 |---|---|---|
-| R1 tests-claimed-not-run | the agent says tests pass, but no test runner has passed since the last edit | `[provalot] Claimed tests pass, but no test runner has passed since the last edit (...). Run the tests now, or say they were not run.` |
+| R1 tests-claimed-not-run | the agent says tests pass, but no test runner has passed since the last edit to a non-documentation file | `[provalot] Claimed tests pass, but no test runner has passed since the last edit (...). Run the tests now, or say they were not run.` |
 | R2 edit-claimed-no-change | the agent says it updated `path`, but that file's hash did not change this session | `[provalot] Claimed path was updated, but its content hash did not change in this session. ...` |
 | R3 policy | a `CLAUDE.md` / `AGENTS.md` line says `NEVER run <cmd>`, `Do not edit <path>`, or `ALWAYS run the tests before committing` | the command or edit is denied before it runs, with the policy line quoted |
 
@@ -29,6 +29,8 @@ With provalot, that Stop is refused and the model sees:
 > [provalot] Claimed tests pass, but no test runner has passed since the last edit (last edit: src/parser.py; no passing test run recorded). Run the tests now, or say they were not run.
 
 The agent runs `pytest`, the ledger records a passing run, the next Stop is allowed.
+
+Where this matters most is the session nobody is reading: a scheduled loop, an overnight run, a CI agent. There, an unbacked "all tests pass" is not an annoyance, it is the state of the repo tomorrow morning. In the first-party ledger below, three unattended loops produced 52 of the 96 blocks.
 
 ## Commands
 
@@ -63,3 +65,21 @@ Every block is a near miss: an unbacked "done" that would have shipped — the f
 ## Limits, stated plainly
 
 Hooks fail open on timeout in both harnesses; provalot stays under 50 ms and never blocks more than three times in a row. A Stop re-evaluated after a block (`stop_hook_active`) is blocked again only if nothing new was run or edited; a retry that did something the ledger still cannot verify is allowed with a warning to the user (`softened` in `provalot stats`). Claims are matched by patterns and can miss paraphrases. Test outcomes are inferred from runner output (pytest, unittest, cargo, jest, vitest, node:test, go, xcodebuild, swift) because neither harness passes exit codes to hooks. A project's own test entry point counts too — a test-named script (`tools/test_service.sh`, `./run_tests.py`), `make test`, `./gradlew test`, `rspec`, `tox`, … — judged by its exit status plus any `FAIL`/`N failed` marker in its output.
+
+## First-party numbers, audited
+
+Before publishing, every block provalot had raised on its author's own machine was pulled from the ledgers and classified by the evidence state at the moment of the block (2026-09-04; 34 sessions, 20 repos, 9,386 evaluated stops, 96 blocks, about 1.0% of stops).
+
+| Evidence state when blocked | Blocks | Read |
+|---|---:|---|
+| No test runner had run at all | 7 | real near miss |
+| The last run had failed | 9 | real near miss |
+| A green run existed, then code changed | 9 | per spec |
+| A runner ran but its result could not be read from the output | 17 | ambiguous; mostly `cargo test \| grep` |
+| A green run existed, then only a `.md` file changed | 54 | false positive |
+
+Two things changed as a result, both in this release: edits to documentation no longer invalidate a green run, and a block now names the run whose result it could not read and why. Test commands quoted inside a grep pattern or a string are no longer mistaken for a run. In 88 of the 96 blocks the agent's next action was to run the tests, which then passed.
+
+So the honest first-party rate is 16 confirmed near misses in 9,386 stops, not 96. Only 230 of those stops contained a claim provalot can check at all; the other 97.5% said "done", which v0 deliberately does not treat as a claim. That is the frontier, not this release.
+
+The audit is reproducible from any `.provalot/sessions/` directory; `provalot stats` and `provalot report` print the same facts.

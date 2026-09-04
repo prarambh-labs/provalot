@@ -51,7 +51,7 @@ impl Runner {
     }
 }
 
-/// Split on `&&`, `||`, `|`, `;` and newlines. Quotes are not parsed; good enough for runner detection.
+/// Split on `&&`, `||`, `|`, `;` and newlines, outside quotes. A `cargo test` inside a grep pattern\n/// or a quoted string is data, not a test run (first-party audit 2026-09-04).
 /// Heredoc bodies (`<<EOF` … `EOF`, also `<<'EOF'`, `<<"EOF"`, `<<-EOF`) are data, not commands, and are
 /// dropped so a Python patch mentioning `tests/test_x.py` is never mistaken for a test run.
 fn segments(command: &str) -> Vec<String> {
@@ -65,14 +65,29 @@ fn segments(command: &str) -> Vec<String> {
             continue;
         }
         let mut cur = String::new();
+        let mut quote: Option<char> = None;
         let mut chars = line.chars().peekable();
         while let Some(c) = chars.next() {
             match c {
-                '&' | '|' if chars.peek() == Some(&c) => {
+                '\\' if quote != Some('\'') => {
+                    cur.push(c);
+                    if let Some(n) = chars.next() {
+                        cur.push(n);
+                    }
+                }
+                '\'' | '"' => {
+                    match quote {
+                        Some(q) if q == c => quote = None,
+                        None => quote = Some(c),
+                        _ => {}
+                    }
+                    cur.push(c);
+                }
+                '&' | '|' if quote.is_none() && chars.peek() == Some(&c) => {
                     chars.next();
                     out.push(std::mem::take(&mut cur));
                 }
-                '|' | ';' => out.push(std::mem::take(&mut cur)),
+                '|' | ';' if quote.is_none() => out.push(std::mem::take(&mut cur)),
                 _ => cur.push(c),
             }
         }
@@ -353,5 +368,25 @@ mod tests {
         ] {
             assert_eq!(Runner::parse(r.as_str()), r);
         }
+    }
+
+    #[test]
+    fn quoted_test_commands_are_not_runs() {
+        assert_eq!(
+            classify("rtk grep -n '^##\\|cargo test -p ex-12-sync' chapters/12-sync.md"),
+            Runner::Other
+        );
+        assert_eq!(classify("echo \"run cargo test later\""), Runner::Other);
+        assert_eq!(classify("git commit -m 'pytest tests/ now green'"), Runner::Other);
+        assert_eq!(classify("cargo test -p foo 2>&1 | tail -40"), Runner::Cargo);
+        assert_eq!(classify("echo 'x' && cargo test"), Runner::Cargo);
+    }
+
+    #[test]
+    fn heredoc_body_mentioning_a_runner_is_not_a_run() {
+        let cmd = "python3 - <<'PY'\nimport re\n# cargo test -p foo\nPY";
+        assert_eq!(classify(cmd), Runner::Other);
+        let cmd2 = "cat > x.rs <<'EOF'\n// cargo test\nEOF\ncargo test -p foo";
+        assert_eq!(classify(cmd2), Runner::Cargo);
     }
 }

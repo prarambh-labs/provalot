@@ -144,7 +144,7 @@ pub fn render_share(root: &Path) -> String {
     }
     out.push_str("\nDe-identified blob (counts only; hashed repo id; no commands, paths or text):\n");
     out.push_str(&serde_json::to_string_pretty(&blob(root, &f)).unwrap_or_default());
-    out.push_str("\n\nSharing is optional and manual: paste the blob at https://github.com/vaishach0523-P1/provalot/discussions if you want it in the corpus. provalot never transmits anything itself.\n");
+    out.push_str("\n\nSharing is optional and manual: paste the blob at https://github.com/prarambh-labs/provalot/discussions if you want it in the corpus. provalot never transmits anything itself.\n");
     out
 }
 
