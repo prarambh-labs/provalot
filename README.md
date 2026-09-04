@@ -83,3 +83,11 @@ Two things changed as a result, both in this release: edits to documentation no 
 So the honest first-party rate is 16 confirmed near misses in 9,386 stops, not 96. Only 230 of those stops contained a claim provalot can check at all; the other 97.5% said "done", which v0 deliberately does not treat as a claim. That is the frontier, not this release.
 
 The audit is reproducible from any `.provalot/sessions/` directory; `provalot stats` and `provalot report` print the same facts.
+
+## Status
+
+v0.1.0, September 2026. Claude Code and Codex CLI. Three rules, local ledger, no telemetry.
+
+Next: Gemini CLI and Copilot adapters once their hook payloads settle; a rule for "done" claims, which have no evidence type yet.
+
+Bugs and false positives: open an issue with the block reason and, if you are willing, the output of `provalot report`.
