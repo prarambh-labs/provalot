@@ -1,6 +1,6 @@
 {
   "name": "provalot",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Deterministic evidence gate for coding agents (Claude Code, Codex CLI)",
   "keywords": [
     "claude-code",
