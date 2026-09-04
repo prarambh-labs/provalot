@@ -5,7 +5,22 @@ on:
 permissions:
   contents: write
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: tag matches Cargo.toml, npm/package.json, plugin.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          cargo_v=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
+          npm_v=$(node -p "require('./npm/package.json').version")
+          plugin_v=$(node -p "require('./.claude-plugin/plugin.json').version")
+          echo "tag=$tag cargo=$cargo_v npm=$npm_v plugin=$plugin_v"
+          [ "$tag" = "$cargo_v" ] && [ "$tag" = "$npm_v" ] && [ "$tag" = "$plugin_v" ] \
+            || { echo "::error::version mismatch; bump all three before tagging"; exit 1; }
+
   build:
+    needs: check-version
     strategy:
       fail-fast: false
       matrix:
@@ -39,3 +54,49 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: provalot-${{ matrix.target }}.*
+
+  # Publishes to crates.io and npm via OIDC trusted publishing (no long-lived tokens).
+  # One-time setup on each registry, see README "Releasing".
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: crates.io auth (trusted publishing)
+        id: crates-auth
+        uses: rust-lang/crates-io-auth-action@v1
+      - name: cargo publish
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if curl -sf "https://crates.io/api/v1/crates/provalot/$v" -A "provalot-release" >/dev/null; then
+            echo "provalot $v already on crates.io, skipping"
+          else
+            cargo publish --locked
+          fi
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: npm >= 11.5.1 (required for trusted publishing)
+        run: npm install -g npm@latest && npm --version
+      - name: fill npm/checksums.json from this release's assets
+        run: scripts/npm-checksums.sh "$GITHUB_REF_NAME"
+      - name: npm publish (provenance)
+        working-directory: npm
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if npm view "provalot@$v" version >/dev/null 2>&1; then
+            echo "provalot $v already on npm, skipping"
+          else
+            npm publish --provenance --access public
+          fi

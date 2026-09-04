@@ -2,7 +2,18 @@
   "name": "provalot",
   "description": "Deterministic evidence gate: blocks \"done\" when the session ledger has no evidence for the claim",
   "version": "0.1.1",
-  "author": { "name": "Prarambh LLC" },
+  "author": {
+    "name": "Prarambh LLC"
+  },
   "homepage": "https://github.com/prarambh-labs/provalot",
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": [
+    "verification",
+    "tests",
+    "evidence",
+    "stop-hook",
+    "guardrail",
+    "codex"
+  ],
+  "repository": "https://github.com/prarambh-labs/provalot"
 }

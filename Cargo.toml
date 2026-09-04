@@ -5,6 +5,12 @@ edition = "2021"
 description = "Deterministic evidence gate for coding agents"
 license = "MIT"
 repository = "https://github.com/prarambh-labs/provalot"
+homepage = "https://github.com/prarambh-labs/provalot"
+documentation = "https://github.com/prarambh-labs/provalot#readme"
+readme = "README.md"
+keywords = ["claude-code", "codex", "coding-agent", "hooks", "verification"]
+categories = ["development-tools", "development-tools::testing", "command-line-utilities"]
+exclude = ["/.provalot/", "/.remember/", "/.superpowers/", "/npm/", "/hooks/", "/.claude-plugin/", "/.github/", "/scripts/"]
 
 [[bin]]
 name = "provalot"

@@ -2,10 +2,51 @@
   "name": "provalot",
   "version": "0.1.1",
   "description": "Deterministic evidence gate for coding agents (Claude Code, Codex CLI)",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "codex-cli",
+    "coding-agent",
+    "ai-agent",
+    "llm",
+    "hooks",
+    "stop-hook",
+    "verification",
+    "evidence",
+    "tests",
+    "guardrail",
+    "agent-safety",
+    "cli",
+    "rust"
+  ],
   "license": "MIT",
+  "author": "Prarambh LLC",
+  "homepage": "https://github.com/prarambh-labs/provalot#readme",
   "repository": "github:prarambh-labs/provalot",
-  "bin": { "provalot": "bin/provalot.js" },
-  "scripts": { "postinstall": "node install.js", "test": "node --test" },
-  "files": ["install.js", "checksums.json", "bin/provalot.js"],
-  "engines": { "node": ">=18" }
+  "bugs": "https://github.com/prarambh-labs/provalot/issues",
+  "bin": {
+    "provalot": "bin/provalot.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js",
+    "test": "node --test"
+  },
+  "files": [
+    "install.js",
+    "checksums.json",
+    "bin/provalot.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
 }
