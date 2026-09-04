@@ -1,7 +1,7 @@
 {
-  "provalot-aarch64-apple-darwin.tar.gz": "78955912a0dc1b40aea8b21f277d752f73ecfac9a4352a62ec179ea1ecaeaaaa",
-  "provalot-aarch64-unknown-linux-musl.tar.gz": "8ffe434717d0135d81068d745ecc905c48d08dbbe87ea41d79b9e6bd5b120309",
-  "provalot-x86_64-apple-darwin.tar.gz": "1d83c4d574e800347452f5d1ebe4e2e130dd602436855ff21baff1bcc8f6b751",
-  "provalot-x86_64-pc-windows-msvc.zip": "fb8241f1f776e0019deb1999d96b4df0fe68ff7336a9a41c74ef46b289b98d6d",
-  "provalot-x86_64-unknown-linux-musl.tar.gz": "51d11021d6809f18019911b9d56e7907fd35c20937f9ba140c83f64a65ce492c"
+  "provalot-aarch64-apple-darwin.tar.gz": "0c73ca5ac24d92e1ead0d20c773fbe78cf92eacd98956b93b5ed79af03c20b66",
+  "provalot-aarch64-unknown-linux-musl.tar.gz": "84e7b98a47bc0ee2dfdb5a2b1f2f5963c98028c66a5a329eb20f2179f005271c",
+  "provalot-x86_64-apple-darwin.tar.gz": "7b838e04de3baa0b9f15040d71d837e048890f679f80e7b26fe19297529f69ac",
+  "provalot-x86_64-pc-windows-msvc.zip": "68b3337863471f97b3211b9a97163bb0c41f2f43ff88de42b3d05164aa58d5e7",
+  "provalot-x86_64-unknown-linux-musl.tar.gz": "5bbd666bf8c6afdd149e0eb858d383bdd6489f2726f1a2d2549d67cab56b2d84"
 }
